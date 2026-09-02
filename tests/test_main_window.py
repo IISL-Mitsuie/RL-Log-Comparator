@@ -61,6 +61,27 @@ class TestMainWindow(unittest.TestCase):
 
         self.assertIn(self.folder_a, [window.combo_folder_a.itemText(i) for i in range(window.combo_folder_a.count())])
 
+    def test_update_header_button(self):
+        window = ExperimentCompareApp()
+        self.assertIsNotNone(window.btn_update_header)
+        self.assertIn("更新を確認", window.btn_update_header.text())
+
+        # 更新情報を適用した際のUI変化
+        from src.core.updater import UpdateInfo
+        dummy_info = UpdateInfo(
+            version="1.2.0",
+            tag_name="v1.2.0",
+            title="v1.2.0",
+            release_notes="Notes",
+            release_url="https://github.com",
+            published_at="2026-09-02",
+            is_update_available=True
+        )
+        window._apply_update_info(dummy_info)
+        self.assertIn("v1.2.0 更新可能", window.btn_update_header.text())
+
 
 if __name__ == "__main__":
     unittest.main()
+
+

@@ -14,5 +14,13 @@ CLEAR_HISTORY_TEXT = "🗑️ 履歴をクリア..."
 # Windows AppUserModelID
 APP_USER_MODEL_ID = "IISL.RL_Log_Comparator.1_0"
 
+# アプリケーションバージョン・GitHub リポジトリ設定
+APP_VERSION = "1.1.0"
+GITHUB_REPO_OWNER = "IISL-Mitsuie"
+GITHUB_REPO_NAME = "RL-Log-Comparator"
+UPDATE_CHECK_TIMEOUT_SEC = 5.0
+
 # Matplotlib キャッシュディレクトリ名
 MATPLOTLIB_CACHE_DIR_NAME = ".matplotlib"
+
+
