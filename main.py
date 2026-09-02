@@ -75,7 +75,7 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem, QTextBrowser
 )
 from PySide6.QtGui import QPixmap, QTransform, QColor, QBrush, QFont, QWheelEvent, QIcon
-from PySide6.QtCore import Qt, Signal, Slot, QPointF
+from PySide6.QtCore import Qt, Signal, Slot, QPointF, QSettings
 
 import matplotlib
 matplotlib.use("QtAgg")
@@ -806,6 +806,13 @@ class CsvCompareWidget(QWidget):
         self.canvas.draw()
 
 
+SETTINGS_ORG = "IISL"
+SETTINGS_APP = "RL-Log-Comparator"
+SETTINGS_KEY_RECENT_FOLDERS = "recent_folders"
+MAX_HISTORY_COUNT = 5
+CLEAR_HISTORY_TEXT = "🗑️ 履歴をクリア..."
+
+
 class ExperimentCompareApp(QMainWindow):
     """メインウィンドウ"""
 
@@ -819,9 +826,12 @@ class ExperimentCompareApp(QMainWindow):
         if icon_path and os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
+        self._settings = QSettings(SETTINGS_ORG, SETTINGS_APP)
+        self._history = self._load_history()
         self._last_loaded_a = ""
         self._last_loaded_b = ""
         self._init_ui()
+        self._update_history_combos()
 
     def _init_ui(self):
         main_widget = QWidget()
@@ -835,10 +845,14 @@ class ExperimentCompareApp(QMainWindow):
         # フォルダ A
         lay_a = QHBoxLayout()
         lay_a.addWidget(QLabel("フォルダ A (基準):"))
-        self.edit_folder_a = QLineEdit()
-        self.edit_folder_a.setPlaceholderText("output_YYYYMMDD_HHMMSS フォルダへのパス")
-        self.edit_folder_a.textChanged.connect(self._check_auto_load)
-        lay_a.addWidget(self.edit_folder_a, 1)
+        self.combo_folder_a = QComboBox()
+        self.combo_folder_a.setEditable(True)
+        self.combo_folder_a.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        if self.combo_folder_a.lineEdit():
+            self.combo_folder_a.lineEdit().setPlaceholderText("output_YYYYMMDD_HHMMSS フォルダへのパス (または履歴から選択)")
+            self.combo_folder_a.lineEdit().textChanged.connect(self._check_auto_load)
+        self.combo_folder_a.activated.connect(lambda idx: self._on_combo_activated(is_target_a=True, index=idx))
+        lay_a.addWidget(self.combo_folder_a, 1)
         btn_browse_a = QPushButton("参照...")
         btn_browse_a.clicked.connect(lambda: self._browse_folder_smart(is_target_a=True))
         lay_a.addWidget(btn_browse_a)
@@ -847,10 +861,14 @@ class ExperimentCompareApp(QMainWindow):
         # フォルダ B
         lay_b = QHBoxLayout()
         lay_b.addWidget(QLabel("フォルダ B (比較):"))
-        self.edit_folder_b = QLineEdit()
-        self.edit_folder_b.setPlaceholderText("output_YYYYMMDD_HHMMSS フォルダへのパス")
-        self.edit_folder_b.textChanged.connect(self._check_auto_load)
-        lay_b.addWidget(self.edit_folder_b, 1)
+        self.combo_folder_b = QComboBox()
+        self.combo_folder_b.setEditable(True)
+        self.combo_folder_b.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        if self.combo_folder_b.lineEdit():
+            self.combo_folder_b.lineEdit().setPlaceholderText("output_YYYYMMDD_HHMMSS フォルダへのパス (または履歴から選択)")
+            self.combo_folder_b.lineEdit().textChanged.connect(self._check_auto_load)
+        self.combo_folder_b.activated.connect(lambda idx: self._on_combo_activated(is_target_a=False, index=idx))
+        lay_b.addWidget(self.combo_folder_b, 1)
         btn_browse_b = QPushButton("参照...")
         btn_browse_b.clicked.connect(lambda: self._browse_folder_smart(is_target_a=False))
         lay_b.addWidget(btn_browse_b)
@@ -875,12 +893,95 @@ class ExperimentCompareApp(QMainWindow):
 
         main_layout.addWidget(self.tabs, 1)
 
-    def _browse_folder_smart(self, is_target_a: bool):
-        target_edit = self.edit_folder_a if is_target_a else self.edit_folder_b
-        other_edit = self.edit_folder_b if is_target_a else self.edit_folder_a
+    def _load_history(self) -> list:
+        """QSettings から履歴を読み込み、存在しないパスを除外して最大件数内に整形して返す"""
+        val = self._settings.value(SETTINGS_KEY_RECENT_FOLDERS, [])
+        if isinstance(val, str):
+            val = [val] if val else []
+        elif not isinstance(val, list):
+            val = []
 
-        target_path = target_edit.text().strip()
-        other_path = other_edit.text().strip()
+        valid_history = []
+        for p in val:
+            if isinstance(p, str) and p.strip() and os.path.isdir(p.strip()):
+                norm_p = os.path.abspath(p.strip())
+                if norm_p not in valid_history:
+                    valid_history.append(norm_p)
+
+        valid_history = valid_history[:MAX_HISTORY_COUNT]
+        if valid_history != val:
+            self._save_history(valid_history)
+        return valid_history
+
+    def _save_history(self, history_list: list):
+        """QSettings に履歴リストを保存"""
+        self._settings.setValue(SETTINGS_KEY_RECENT_FOLDERS, history_list[:MAX_HISTORY_COUNT])
+
+    def _add_to_history(self, folder_path: str):
+        """フォルダパスを履歴の先頭に追加（MRU順・上限5件）してUIを同期更新"""
+        if not folder_path or not os.path.isdir(folder_path):
+            return
+        abs_path = os.path.abspath(folder_path)
+        self._history = self._load_history()
+        if abs_path in self._history:
+            self._history.remove(abs_path)
+        self._history.insert(0, abs_path)
+        self._history = self._history[:MAX_HISTORY_COUNT]
+        self._save_history(self._history)
+        self._update_history_combos()
+
+    def _clear_history(self):
+        """確認ダイアログを表示の上、全履歴を消去"""
+        reply = QMessageBox.question(
+            self,
+            "履歴のクリア",
+            "実験ログフォルダの選択履歴をすべて消去しますか？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._history = []
+            self._settings.remove(SETTINGS_KEY_RECENT_FOLDERS)
+            self._update_history_combos()
+
+    def _update_history_combos(self):
+        """A/B 両方のコンボボックスのドロップダウン項目を最新の履歴で同期更新"""
+        combos = [self.combo_folder_a, self.combo_folder_b]
+        for combo in combos:
+            current_text = combo.currentText()
+            combo.blockSignals(True)
+            combo.clear()
+            for path in self._history:
+                combo.addItem(path)
+            if self._history:
+                combo.insertSeparator(combo.count())
+                combo.addItem(CLEAR_HISTORY_TEXT)
+            combo.setCurrentIndex(-1)
+            combo.setEditText(current_text)
+            combo.blockSignals(False)
+
+    def _on_combo_activated(self, is_target_a: bool, index: int):
+        """コンボボックスのドロップダウン項目が選択された際のハンドラ"""
+        combo = self.combo_folder_a if is_target_a else self.combo_folder_b
+        item_text = combo.itemText(index)
+
+        if item_text == CLEAR_HISTORY_TEXT:
+            combo.setEditText("")
+            self._clear_history()
+            return
+
+        if item_text and os.path.isdir(item_text):
+            self._add_to_history(item_text)
+            combo.setEditText(item_text)
+            self._check_auto_load()
+
+    def _browse_folder_smart(self, is_target_a: bool):
+        """参照ボタン押下時: 前回の入力パス等を起点にフォルダ選択ダイアログを開き、履歴に追加"""
+        target_combo = self.combo_folder_a if is_target_a else self.combo_folder_b
+        other_combo = self.combo_folder_b if is_target_a else self.combo_folder_a
+
+        target_path = target_combo.currentText().strip()
+        other_path = other_combo.currentText().strip()
 
         initial_dir = ""
 
@@ -895,12 +996,15 @@ class ExperimentCompareApp(QMainWindow):
 
         folder = QFileDialog.getExistingDirectory(self, "実験出力ログフォルダを選択", initial_dir)
         if folder:
-            target_edit.setText(folder)
+            norm_folder = os.path.abspath(folder)
+            target_combo.setEditText(norm_folder)
+            self._add_to_history(norm_folder)
             self._check_auto_load()
 
     def _check_auto_load(self):
-        folder_a = self.edit_folder_a.text().strip()
-        folder_b = self.edit_folder_b.text().strip()
+        """両方の入力欄に有効なフォルダが存在する場合に自動読み込みを実行"""
+        folder_a = self.combo_folder_a.currentText().strip()
+        folder_b = self.combo_folder_b.currentText().strip()
 
         if folder_a and folder_b:
             if os.path.isdir(folder_a) and os.path.isdir(folder_b):
@@ -908,17 +1012,19 @@ class ExperimentCompareApp(QMainWindow):
                     self.load_all()
 
     def load_folders(self, path_a, path_b):
-        self.edit_folder_a.blockSignals(True)
-        self.edit_folder_b.blockSignals(True)
-        self.edit_folder_a.setText(path_a)
-        self.edit_folder_b.setText(path_b)
-        self.edit_folder_a.blockSignals(False)
-        self.edit_folder_b.blockSignals(False)
+        """フォルダA/Bを指定して読み込み（CLI起動用。履歴には追加しない）"""
+        self.combo_folder_a.blockSignals(True)
+        self.combo_folder_b.blockSignals(True)
+        self.combo_folder_a.setEditText(path_a)
+        self.combo_folder_b.setEditText(path_b)
+        self.combo_folder_a.blockSignals(False)
+        self.combo_folder_b.blockSignals(False)
         self.load_all()
 
     def load_all(self):
-        folder_a = self.edit_folder_a.text().strip()
-        folder_b = self.edit_folder_b.text().strip()
+        """フォルダA/Bのデータを各ビュー（YAML差分、画像比較、CSVグラフ）に読み込み"""
+        folder_a = self.combo_folder_a.currentText().strip()
+        folder_b = self.combo_folder_b.currentText().strip()
 
         if not folder_a or not folder_b:
             return
@@ -949,7 +1055,7 @@ def main():
         window.load_folders(path_a, path_b)
     elif len(sys.argv) == 2:
         path_a = sys.argv[1]
-        window.edit_folder_a.setText(path_a)
+        window.combo_folder_a.setEditText(path_a)
 
     window.show()
     sys.exit(app.exec())
@@ -957,3 +1063,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
