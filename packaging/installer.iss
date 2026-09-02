@@ -22,10 +22,6 @@ PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
 
-; バージョンアップ時のプロセス自動検知・終了設定 (上書き更新時のファイルロック防止)
-CloseApplications=yes
-CloseApplicationsFilter=*.exe
-RestartApplications=no
 
 #ifndef SourceDir
 #define SourceDir "..\dist\RL-Log-Comparator"
