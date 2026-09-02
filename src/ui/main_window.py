@@ -3,16 +3,26 @@
 """
 
 import os
+import webbrowser
+from typing import Optional
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGroupBox, QLabel, QComboBox, QPushButton, QTabWidget,
     QFileDialog, QMessageBox
 )
 from PySide6.QtGui import QIcon
+from PySide6.QtCore import QTimer, QObject, Signal
 
-from src.config import CLEAR_HISTORY_TEXT
+
+from src.config import (
+    CLEAR_HISTORY_TEXT, APP_VERSION,
+    GITHUB_REPO_OWNER, GITHUB_REPO_NAME,
+    UPDATE_CHECK_TIMEOUT_SEC
+)
 from src.core.paths import get_app_icon_path
 from src.core.history import RecentFolderManager
+from src.core.updater import check_for_updates_async, fetch_latest_release_info, UpdateInfo
+from src.ui.dialogs.update_dialog import UpdateDialog
 from src.ui.widgets.yaml_diff_widget import YamlDiffWidget
 from src.ui.widgets.image_compare_widget import ImageCompareWidget
 from src.ui.widgets.csv_compare_widget import CsvCompareWidget
@@ -24,7 +34,7 @@ class ExperimentCompareApp(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("RL-Log-Comparator - 実験ログ対比・比較分析ツール (PySide6)")
+        self.setWindowTitle(f"RL-Log-Comparator v{APP_VERSION} - 実験ログ対比・比較分析ツール (PySide6)")
         self.resize(1280, 850)
 
         # アプリアイコンの設定
@@ -36,16 +46,31 @@ class ExperimentCompareApp(QMainWindow):
         self._history = self.history_mgr.load_history()
         self._last_loaded_a = ""
         self._last_loaded_b = ""
+        self._latest_update_info: Optional[UpdateInfo] = None
 
         self._init_ui()
         self._update_history_combos()
+
+        # 起動時にバックグラウンドで最新バージョンを非同期確認
+        self._start_background_update_check()
 
     def _init_ui(self):
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         main_layout = QVBoxLayout(main_widget)
 
-        # 1. 上部: フォルダ選択バー
+        # 0. 最上部: ユーティリティバー (更新確認ボタン)
+        top_bar = QHBoxLayout()
+        top_bar.addStretch()
+
+        self.btn_update_header = QPushButton("🔄 更新を確認")
+        self.btn_update_header.setToolTip("最新バージョンの有無を確認します")
+        self.btn_update_header.clicked.connect(self._on_manual_check_update)
+        top_bar.addWidget(self.btn_update_header)
+
+        main_layout.addLayout(top_bar)
+
+        # 1. フォルダ選択バー
         folder_group = QGroupBox("比較対象実験ログフォルダ選択")
         folder_lay = QVBoxLayout(folder_group)
 
@@ -83,6 +108,7 @@ class ExperimentCompareApp(QMainWindow):
 
         main_layout.addWidget(folder_group)
 
+
         # 2. 中央: タブウィジェット
         self.tabs = QTabWidget()
 
@@ -99,6 +125,7 @@ class ExperimentCompareApp(QMainWindow):
         self.tabs.addTab(self.tab_spec, "4. ログ仕様ガイド・エクスポート (Spec & Export)")
 
         main_layout.addWidget(self.tabs, 1)
+
 
     def _update_history_combos(self) -> None:
         """A/B 両方のコンボボックスのドロップダウン項目を最新の履歴で同期更新"""
@@ -208,3 +235,121 @@ class ExperimentCompareApp(QMainWindow):
         self.tab_yaml.load_yamls(folder_a, folder_b)
         self.tab_images.load_folders(folder_a, folder_b)
         self.tab_csv.load_csvs(folder_a, folder_b)
+
+    # -------------------------------------------------------------------------
+    # 自動更新・バージョン確認関連
+    # -------------------------------------------------------------------------
+    def _start_background_update_check(self) -> None:
+        """起動時の非同期バックグラウンド更新確認"""
+        import threading
+        self._bg_worker = _UpdateCheckWorker(
+            GITHUB_REPO_OWNER, GITHUB_REPO_NAME, APP_VERSION, UPDATE_CHECK_TIMEOUT_SEC
+        )
+        self._bg_worker.finished.connect(self._apply_update_info)
+        self._bg_thread = threading.Thread(target=self._bg_worker.run, daemon=True)
+        self._bg_thread.start()
+
+    def _apply_update_info(self, info: Optional[UpdateInfo]) -> None:
+        """更新情報の取得結果をUIに反映"""
+        self._latest_update_info = info
+        if info and info.is_update_available:
+            self.btn_update_header.setText(f"🚀 v{info.version} 更新可能")
+            self.btn_update_header.setToolTip(
+                f"新バージョン v{info.version} が利用可能です！\nクリックしてリリースノートを確認・更新します"
+            )
+            self.btn_update_header.setStyleSheet(
+                "QPushButton {"
+                "   background-color: #0969da; color: white; font-weight: bold; padding: 4px 12px; border-radius: 4px;"
+                "}"
+                "QPushButton:hover {"
+                "   background-color: #0858b9;"
+                "}"
+            )
+            try:
+                self.btn_update_header.clicked.disconnect()
+            except Exception:
+                pass
+            self.btn_update_header.clicked.connect(self._open_update_dialog)
+
+    def _open_update_dialog(self) -> None:
+        """最新の更新情報をもとにアップデートダイアログを表示"""
+        if self._latest_update_info:
+            dialog = UpdateDialog(self, self._latest_update_info, APP_VERSION)
+            dialog.exec()
+        else:
+            self._on_manual_check_update()
+
+    def _on_manual_check_update(self) -> None:
+        """手動更新確認ボタン・メニュー押下時のハンドラ"""
+        if self._latest_update_info and self._latest_update_info.is_update_available:
+            self._open_update_dialog()
+            return
+
+        # 再度APIへ問い合わせ
+        self.btn_update_header.setEnabled(False)
+        self.btn_update_header.setText("🔄 確認中...")
+
+        import threading
+        self._manual_worker = _UpdateCheckWorker(
+            GITHUB_REPO_OWNER, GITHUB_REPO_NAME, APP_VERSION, UPDATE_CHECK_TIMEOUT_SEC
+        )
+        self._manual_worker.finished.connect(self._on_manual_check_finished)
+        self._manual_thread = threading.Thread(target=self._manual_worker.run, daemon=True)
+        self._manual_thread.start()
+
+    def _on_manual_check_finished(self, info: Optional[UpdateInfo]) -> None:
+        """手動更新確認完了時のハンドラ (GUIスレッド)"""
+        self.btn_update_header.setEnabled(True)
+        self.btn_update_header.setText("🔄 更新を確認")
+        self._apply_update_info(info)
+
+        if info is None:
+            QMessageBox.warning(
+                self,
+                "更新確認",
+                "最新バージョンの確認に失敗しました。\n"
+                "インターネット接続を確認するか、しばらく経ってから再度お試しください。"
+            )
+        elif info.is_update_available:
+            dialog = UpdateDialog(self, info, APP_VERSION)
+            dialog.exec()
+        else:
+            QMessageBox.information(
+                self,
+                "更新確認",
+                f"お使いのバージョン (v{APP_VERSION}) は最新です。\n新しいアップデートはありません。"
+            )
+
+    def _show_about_dialog(self) -> None:
+        """バージョン情報ダイアログを表示"""
+        QMessageBox.about(
+            self,
+            "バージョン情報",
+            f"<h3>RL-Log-Comparator</h3>"
+            f"<p>バージョン: <b>v{APP_VERSION}</b></p>"
+            f"<p>強化学習（RL）実験ログ対比・比較分析ツール</p>"
+            f"<hr>"
+            f"<p>GitHub: <a href='https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}'>"
+            f"https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}</a></p>"
+            f"<p>© 2026 IISL Mitsuie Lab. All rights reserved.</p>"
+        )
+
+
+class _UpdateCheckWorker(QObject):
+    """更新確認用非同期ワーカー (Qt Signalブリッジ)"""
+    finished = Signal(object)
+
+    def __init__(self, owner: str, repo: str, version: str, timeout: float):
+        super().__init__()
+        self.owner = owner
+        self.repo = repo
+        self.version = version
+        self.timeout = timeout
+
+    def run(self):
+        info = fetch_latest_release_info(
+            self.owner, self.repo, self.version, timeout_sec=self.timeout
+        )
+        self.finished.emit(info)
+
+

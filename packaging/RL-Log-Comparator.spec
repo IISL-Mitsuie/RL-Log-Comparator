@@ -46,8 +46,11 @@ hiddenimports = [
     'src.core.parsers.yaml_diff',
     'src.core.parsers.image_pair',
     'src.core.parsers.csv_metric',
+    'src.core.updater',
     'src.ui',
     'src.ui.main_window',
+    'src.ui.dialogs',
+    'src.ui.dialogs.update_dialog',
     'src.ui.widgets',
     'src.ui.widgets.sync_graphics_view',
     'src.ui.widgets.yaml_diff_widget',
@@ -55,6 +58,7 @@ hiddenimports = [
     'src.ui.widgets.csv_compare_widget',
     'src.ui.widgets.log_spec_widget',
 ]
+
 
 a = Analysis(
     [main_script],

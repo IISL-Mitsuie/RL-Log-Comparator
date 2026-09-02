@@ -1,6 +1,7 @@
 #define MyAppName "RL-Log-Comparator"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "IISL Mitsuie Lab"
+
 #define MyAppExeName "RL-Log-Comparator.exe"
 
 [Setup]
@@ -20,6 +21,12 @@ SolidCompression=yes
 PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
+
+; バージョンアップ時のプロセス自動検知・終了設定 (上書き更新時のファイルロック防止)
+CloseApplications=yes
+CloseApplicationsFilter=*.exe
+RestartApplications=no
+
 
 [Languages]
 Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
