@@ -74,92 +74,81 @@ def main():
     print("=" * 60)
 
     # Google Driveのファイルロックやクラウド同期遅延を回避するため、
-    # 一時的なビルド用仮想環境および中間ビルドディレクトリはローカルTemp内に配置
-    temp_base = Path(tempfile.gettempdir())
-    venv_dir = temp_base / "rl_log_comparator_build_venv"
-    build_dir = temp_base / "rl_log_comparator_build_work"
-    legacy_venv = root_dir / ".venv_build"
-    legacy_build = root_dir / "build"
+    # 実行ごとに完全に独立したユニークなローカル一時ディレクトリを作成してビルド
+    temp_root = Path(tempfile.mkdtemp(prefix="rl_build_"))
+    build_dir = temp_root / "work"
+    temp_dist_dir = temp_root / "dist"
+    temp_installer_dir = temp_root / "installer_out"
 
+    build_dir.mkdir(parents=True, exist_ok=True)
+    (build_dir / "RL-Log-Comparator").mkdir(parents=True, exist_ok=True)
+    temp_dist_dir.mkdir(parents=True, exist_ok=True)
+    temp_installer_dir.mkdir(parents=True, exist_ok=True)
+
+    legacy_build = root_dir / "build"
     dist_dir = root_dir / "dist"
     installer_output_dir = root_dir / "dist_installer"
     requirements_file = root_dir / "requirements.txt"
     spec_file = root_dir / "packaging" / "RL-Log-Comparator.spec"
     iss_file = root_dir / "packaging" / "installer.iss"
 
-    # 1. Clean previous build virtual environment and output directories
-    print("[1/5] Cleaning previous build artifacts and creating clean virtual environment...")
+    # 1. Clean previous build artifacts in project workspace
+    print("[1/5] Cleaning previous build artifacts and setting up workspace...")
     kill_existing_process()
-    safe_rmtree(venv_dir)
-    safe_rmtree(build_dir)
-    safe_rmtree(legacy_venv)
     safe_rmtree(legacy_build)
     safe_rmtree(dist_dir)
+    installer_output_dir.mkdir(parents=True, exist_ok=True)
 
-    venv_created = False
-    for attempt in range(3):
-        try:
-            subprocess.run([sys.executable, "-m", "venv", "--clear", str(venv_dir)], check=True)
-            venv_created = True
-            break
-        except Exception as e:
-            print(f"[WARNING] Virtualenv creation attempt {attempt + 1} failed: {e}. Retrying...")
-            safe_rmtree(venv_dir)
-            time.sleep(1)
-
-    if not venv_created:
-        print("[ERROR] Failed to create virtual environment.")
-        return 1
-
-    venv_python = venv_dir / "Scripts" / "python.exe"
-    venv_pip = venv_dir / "Scripts" / "pip.exe"
-    venv_pyinstaller = venv_dir / "Scripts" / "pyinstaller.exe"
-
-    # 2. Install dependencies
-    print("[2/5] Installing minimal dependencies from requirements.txt...")
-    try:
-        subprocess.run([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"], check=False)
-        subprocess.run([str(venv_pip), "install", "-r", str(requirements_file)], check=True)
-    except Exception as e:
-        print(f"[ERROR] Failed to install dependencies: {e}")
-        safe_rmtree(venv_dir)
-        return 1
+    # 2. Check build tool environment
+    print("[2/5] Preparing PyInstaller build environment...")
+    pyi_cmd = [sys.executable, "-m", "PyInstaller"]
 
     # 3. Build standalone binary with PyInstaller
     print("[3/5] Building standalone binary with PyInstaller...")
     try:
         subprocess.run(
-            [
-                str(venv_pyinstaller),
+            pyi_cmd + [
                 "--noconfirm",
                 "--workpath", str(build_dir),
-                "--distpath", str(dist_dir),
+                "--distpath", str(temp_dist_dir),
                 str(spec_file)
             ],
             check=True
         )
         print("[INFO] PyInstaller standalone binary created successfully.")
+
     except Exception as e:
         print(f"[ERROR] PyInstaller build failed: {e}")
-        safe_rmtree(venv_dir)
-        safe_rmtree(build_dir)
+        safe_rmtree(temp_root)
         return 1
 
     # 4. Search Inno Setup and compile installer
     print("[4/5] Compiling Windows Setup Installer with Inno Setup...")
+    local_app_data = os.environ.get("LOCALAPPDATA", "")
     iscc_candidates = [
+        Path(local_app_data) / "Programs" / "Inno Setup 6" / "ISCC.exe" if local_app_data else None,
         Path(r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"),
         Path(r"C:\Program Files\Inno Setup 6\ISCC.exe"),
     ]
     iscc_path = None
-    for cand in iscc_candidates:
-        if cand.exists():
-            iscc_path = cand
-            break
+    which_iscc = shutil.which("ISCC.exe") or shutil.which("iscc")
+    if which_iscc:
+        iscc_path = Path(which_iscc)
+    else:
+        for cand in iscc_candidates:
+            if cand and cand.exists():
+                iscc_path = cand
+                break
 
     if iscc_path and iss_file.exists():
         print(f"[INFO] Running Inno Setup compiler: {iscc_path}")
-        res = subprocess.run([str(iscc_path), str(iss_file)])
+        compiled_source = temp_dist_dir / "RL-Log-Comparator"
+        res = subprocess.run([
+            str(iscc_path),
+            f"/DSourceDir={compiled_source}",
+            f"/O{temp_installer_dir}",
+            str(iss_file)
+        ])
         if res.returncode == 0:
             print("[INFO] Inno Setup installer compiled successfully!")
         else:
@@ -171,10 +160,48 @@ def main():
         if not iss_file.exists():
             print(f"[ERROR] Inno Setup script not found: {iss_file}")
 
-    # 5. Clean up temporary virtual environment and build cache
-    print("[5/5] Cleaning up temporary build environment...")
-    safe_rmtree(venv_dir)
-    safe_rmtree(build_dir)
+    # 5. Copy outputs to project root and clean up temporary build environment
+    print("[5/5] Deploying build artifacts and cleaning up...")
+    
+    # Copy standalone dist
+    temp_binary_dir = temp_dist_dir / "RL-Log-Comparator"
+    if temp_binary_dir.exists():
+        dist_dir.mkdir(parents=True, exist_ok=True)
+        target_binary_dir = dist_dir / "RL-Log-Comparator"
+        safe_rmtree(target_binary_dir)
+        for attempt in range(5):
+            try:
+                shutil.copytree(temp_binary_dir, target_binary_dir, dirs_exist_ok=True)
+                break
+            except Exception as e:
+                time.sleep(1.0)
+                if attempt == 4:
+                    print(f"[WARNING] Could not copy dist to project: {e}")
+
+    # Copy installer exe
+    if temp_installer_dir.exists():
+        for f in temp_installer_dir.glob("*.exe"):
+            dest = installer_output_dir / f.name
+            for attempt in range(5):
+                try:
+                    if dest.exists():
+                        try:
+                            dest.unlink()
+                        except Exception:
+                            pass
+                    with open(f, "rb") as src_f, open(dest, "wb") as dst_f:
+                        while chunk := src_f.read(1024 * 1024):
+                            dst_f.write(chunk)
+                        dst_f.flush()
+                        os.fsync(dst_f.fileno())
+                    print(f"[INFO] Successfully copied installer to {dest} ({dest.stat().st_size} bytes)")
+                    break
+                except Exception as e:
+                    time.sleep(1.0)
+                    if attempt == 4:
+                        print(f"[WARNING] Could not copy installer to dist_installer: {e}")
+
+    safe_rmtree(temp_root)
 
     print("=" * 60)
     print("  BUILD PROCESS FINISHED!")
@@ -199,6 +226,9 @@ def main():
         print(f"  [SUCCESS] Standalone Binary: {standalone_exe}")
     print("=" * 60)
     return 0
+
+
+
 
 if __name__ == "__main__":
     sys.exit(main())
