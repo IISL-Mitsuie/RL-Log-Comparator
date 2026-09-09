@@ -35,7 +35,8 @@ def explorer_widget(qtbot):
 
 def test_widget_init(explorer_widget):
     assert explorer_widget.table.columnCount() == 0
-    assert explorer_widget.preview_tabs.count() == 3
+    assert explorer_widget.preview_tabs.count() == 1
+    assert explorer_widget.preview_tabs.tabText(0) == "画像なし"
     assert explorer_widget.cb_recursive.isChecked() is True
 
 
@@ -61,10 +62,15 @@ def test_scan_and_populate_table(explorer_widget, tmp_path):
     assert explorer_widget.table.item(0, 2).text() == "output_20260802_150000"
     assert "2026/08/02" in explorer_widget.table.item(0, 3).text()
 
+    # 動的プレビュータブがアルファベット順に生成されていること
+    assert explorer_widget.preview_tabs.count() == 3
+    assert explorer_widget.preview_tabs.tabText(0) == "learning_rewards"
+    assert explorer_widget.preview_tabs.tabText(1) == "learning_steps"
+    assert explorer_widget.preview_tabs.tabText(2) == "trajectory"
 
 
 def test_tab_index_preservation_on_selection_change(explorer_widget, tmp_path):
-    """ログ選択を変えてもプレビュータブのインデックスが維持されることの検証"""
+    """ログ選択を変えてもプレフィックス名ベースでタブ選択が維持されることの検証"""
     s_sap_dir = tmp_path / "S-SAP"
     s_sap_dir.mkdir()
     create_dummy_experiment_folder(str(s_sap_dir), "output_20260801_100000", mode="S-SAP")
@@ -72,15 +78,65 @@ def test_tab_index_preservation_on_selection_change(explorer_widget, tmp_path):
 
     explorer_widget.set_root_directory(str(tmp_path))
 
-    # タブをインデックス1 (ステップ推移) に切り替え
+    # タブをインデックス1 (learning_steps) に切り替え
     explorer_widget.preview_tabs.setCurrentIndex(1)
     assert explorer_widget.preview_tabs.currentIndex() == 1
+    assert explorer_widget.preview_tabs.tabText(1) == "learning_steps"
 
     # テーブルの選択行を2行目（インデックス1）に変更
     explorer_widget.table.selectRow(1)
 
-    # 行が変わってもプレビュータブのインデックスが1のままであること
+    # 行が変わっても learning_steps タブの選択が維持されていること
     assert explorer_widget.preview_tabs.currentIndex() == 1
+    assert explorer_widget.preview_tabs.tabText(explorer_widget.preview_tabs.currentIndex()) == "learning_steps"
+
+
+def test_dynamic_tabs_with_different_images_and_no_images(explorer_widget, tmp_path):
+    """ログごとに画像構成が異なる場合や、画像が存在しない場合の動的タブ挙動テスト"""
+    s_dir = tmp_path / "S-SAP"
+    s_dir.mkdir()
+
+    # ログ1: learning_rewards と trajectory のみ
+    create_dummy_experiment_folder(
+        str(s_dir),
+        "output_20260801_100000",
+        mode="S-SAP",
+        images=["learning_rewards_001.png", "trajectory_001.png"]
+    )
+    # ログ2: 画像なし (空フォルダ)
+    create_dummy_experiment_folder(
+        str(s_dir),
+        "output_20260802_150000",
+        mode="S-SAP",
+        images=[]
+    )
+
+    explorer_widget.set_root_directory(str(tmp_path))
+
+    # 1行目 (output_20260802_150000: 画像なし) を選択
+    explorer_widget.table.selectRow(0)
+    assert explorer_widget.preview_tabs.count() == 1
+    assert explorer_widget.preview_tabs.tabText(0) == "画像なし"
+
+    # 2行目 (output_20260801_100000: 2画像) を選択
+    explorer_widget.table.selectRow(1)
+    assert explorer_widget.preview_tabs.count() == 2
+    assert explorer_widget.preview_tabs.tabText(0) == "learning_rewards"
+    assert explorer_widget.preview_tabs.tabText(1) == "trajectory"
+
+    # trajectory タブ (インデックス1) を選択
+    explorer_widget.preview_tabs.setCurrentIndex(1)
+    assert explorer_widget.preview_tabs.tabText(explorer_widget.preview_tabs.currentIndex()) == "trajectory"
+
+    # 再度1行目 (画像なし) を選択
+    explorer_widget.table.selectRow(0)
+    assert explorer_widget.preview_tabs.count() == 1
+    assert explorer_widget.preview_tabs.tabText(0) == "画像なし"
+
+    # 再び2行目を選択した際、記憶されていた trajectory タブへ自動復帰すること
+    explorer_widget.table.selectRow(1)
+    assert explorer_widget.preview_tabs.currentIndex() == 1
+    assert explorer_widget.preview_tabs.tabText(explorer_widget.preview_tabs.currentIndex()) == "trajectory"
 
 
 def test_signals_set_folder_a_and_b(explorer_widget, tmp_path, qtbot):

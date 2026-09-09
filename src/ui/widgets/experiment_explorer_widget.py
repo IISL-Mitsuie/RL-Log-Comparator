@@ -7,7 +7,7 @@
 import os
 from typing import Any, Optional
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QGroupBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter, QGroupBox,
     QLabel, QLineEdit, QPushButton, QCheckBox, QTableWidget,
     QTableWidgetItem, QHeaderView, QTabWidget, QFileDialog,
     QMenu, QMessageBox, QAbstractItemView, QFrame, QComboBox
@@ -119,6 +119,11 @@ class ExperimentExplorerWidget(QWidget):
         self._raw_column_names: list[str] = []
         self._column_filters: dict[str, set[str]] = {}
 
+        # 画像プレビュー動的タブ追跡用変数
+        self._last_selected_tab_key: str = ""
+        self._current_tab_keys: list[str] = []
+        self._tab_preview_labels: dict[str, ImagePreviewLabel] = {}
+
         self._init_ui()
         self._update_history_combo()
 
@@ -134,12 +139,18 @@ class ExperimentExplorerWidget(QWidget):
 
         # 1. 上部コントロールバー
         ctrl_group = QGroupBox("探索設定")
-        ctrl_layout = QVBoxLayout(ctrl_group)
-        ctrl_layout.setSpacing(6)
+        ctrl_grid = QGridLayout(ctrl_group)
+        ctrl_grid.setHorizontalSpacing(8)
+        ctrl_grid.setVerticalSpacing(6)
+        ctrl_grid.setContentsMargins(8, 8, 8, 8)
 
-        # 1-1. 親フォルダ選択行
-        folder_row = QHBoxLayout()
-        folder_row.addWidget(QLabel("探索ルートフォルダ:"))
+        # 1-1. 親フォルダ選択行（行0）
+        lbl_root = QLabel("探索ルートフォルダ:")
+        ctrl_grid.addWidget(lbl_root, 0, 0)
+
+        root_input_lay = QHBoxLayout()
+        root_input_lay.setContentsMargins(0, 0, 0, 0)
+        root_input_lay.setSpacing(4)
         self.combo_root_dir = QComboBox()
         self.combo_root_dir.setEditable(True)
         self.combo_root_dir.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
@@ -147,54 +158,72 @@ class ExperimentExplorerWidget(QWidget):
             self.combo_root_dir.lineEdit().setPlaceholderText("実験ログ群が格納されているフォルダへのパス (例: output_robotino_rl_control) または履歴から選択")
             self.combo_root_dir.lineEdit().returnPressed.connect(self.scan_directory)
         self.combo_root_dir.activated.connect(self._on_root_combo_activated)
-        folder_row.addWidget(self.combo_root_dir, 1)
+        root_input_lay.addWidget(self.combo_root_dir, 1)
 
         btn_browse = QPushButton("参照...")
+        btn_browse.setMaximumWidth(65)
         btn_browse.clicked.connect(self._browse_directory)
-        folder_row.addWidget(btn_browse)
+        root_input_lay.addWidget(btn_browse)
+        ctrl_grid.addLayout(root_input_lay, 0, 1)
 
         self.cb_recursive = QCheckBox("サブフォルダも含めて検索")
         self.cb_recursive.setChecked(True)
         self.cb_recursive.toggled.connect(self.scan_directory)
-        folder_row.addWidget(self.cb_recursive)
 
-        btn_reload = QPushButton("🔄 再読み込み")
+        btn_reload = QPushButton("再読込")
+        btn_reload.setMaximumWidth(70)
         btn_reload.clicked.connect(self.scan_directory)
-        folder_row.addWidget(btn_reload)
-        ctrl_layout.addLayout(folder_row)
 
-        # 1-2. フィルタ & カラム設定行
-        action_row = QHBoxLayout()
-        action_row.addWidget(QLabel("クイックフィルタ:"))
+        right_top_lay = QHBoxLayout()
+        right_top_lay.setContentsMargins(0, 0, 0, 0)
+        right_top_lay.setSpacing(8)
+        right_top_lay.addWidget(self.cb_recursive)
+        right_top_lay.addWidget(btn_reload)
+        ctrl_grid.addLayout(right_top_lay, 0, 2)
+
+        # 1-2. 視覚的セパレータ（探索データソースと絞り込み設定の分離）（行1）
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Plain)
+        sep.setStyleSheet("color: #e2e8f0; margin: 1px 0px;")
+        ctrl_grid.addWidget(sep, 1, 0, 1, 3)
+
+        # 1-3. 絞り込み（フィルタ）行（行2）
+        lbl_filter = QLabel("クイックフィルタ:")
+        ctrl_grid.addWidget(lbl_filter, 2, 0)
+
+        filter_input_lay = QHBoxLayout()
+        filter_input_lay.setContentsMargins(0, 0, 0, 0)
+        filter_input_lay.setSpacing(4)
         self.edit_filter = QLineEdit()
         self.edit_filter.setPlaceholderText("モード、日時、パラメータ等で絞り込み...")
         self.edit_filter.textChanged.connect(self._apply_filter)
-        action_row.addWidget(self.edit_filter, 1)
+        filter_input_lay.addWidget(self.edit_filter, 1)
 
         btn_clear_filter = QPushButton("✕")
         btn_clear_filter.setMaximumWidth(28)
         btn_clear_filter.setToolTip("クイックフィルタをクリア")
         btn_clear_filter.clicked.connect(lambda: self.edit_filter.setText(""))
-        action_row.addWidget(btn_clear_filter)
+        filter_input_lay.addWidget(btn_clear_filter)
+        ctrl_grid.addLayout(filter_input_lay, 2, 1)
+
+        self.btn_column_filter = QPushButton("🔍 列フィルター...")
+        self.btn_column_filter.setToolTip("列を選択してフィルター設定ダイアログを開きます")
+        self.btn_column_filter.clicked.connect(self._open_column_filter_picker)
 
         self.btn_reset_all_filters = QPushButton("✕ フィルター全解除")
         self.btn_reset_all_filters.setToolTip("クイックフィルタおよび各列のフィルターをすべて解除します")
         self.btn_reset_all_filters.setEnabled(False)
         self.btn_reset_all_filters.clicked.connect(self.clear_all_filters)
-        action_row.addWidget(self.btn_reset_all_filters)
 
-        action_row.addSpacing(16)
-        self.btn_column_filter = QPushButton("🔍 列フィルター...")
-        self.btn_column_filter.setToolTip("列を選択してフィルター設定ダイアログを開きます")
-        self.btn_column_filter.clicked.connect(self._open_column_filter_picker)
-        action_row.addWidget(self.btn_column_filter)
+        right_bottom_lay = QHBoxLayout()
+        right_bottom_lay.setContentsMargins(0, 0, 0, 0)
+        right_bottom_lay.setSpacing(8)
+        right_bottom_lay.addWidget(self.btn_column_filter)
+        right_bottom_lay.addWidget(self.btn_reset_all_filters)
+        ctrl_grid.addLayout(right_bottom_lay, 2, 2)
 
-        self.btn_column_settings = QPushButton("⚙️ カラム表示設定...")
-        self.btn_column_settings.setToolTip("テーブル列の表示・非表示を設定します")
-        self.btn_column_settings.clicked.connect(self._open_column_settings)
-        action_row.addWidget(self.btn_column_settings)
-
-        ctrl_layout.addLayout(action_row)
+        ctrl_grid.setColumnStretch(1, 1)
 
         main_layout.addWidget(ctrl_group)
 
@@ -208,9 +237,15 @@ class ExperimentExplorerWidget(QWidget):
         table_lay.setSpacing(4)
 
         table_top_lay = QHBoxLayout()
-        self.lbl_table_status = QLabel("探索フォルダを指定して「再読み込み」を押してください。")
+        self.lbl_table_status = QLabel("探索フォルダを指定して「再読込」を押してください。")
         self.lbl_table_status.setStyleSheet("color: #666; font-size: 11px;")
         table_top_lay.addWidget(self.lbl_table_status, 1)
+
+        self.btn_column_settings = QPushButton("⚙️ カラム表示設定...")
+        self.btn_column_settings.setToolTip("テーブル列の表示・非表示を設定します")
+        self.btn_column_settings.setStyleSheet("padding: 2px 8px; font-size: 11px;")
+        self.btn_column_settings.clicked.connect(self._open_column_settings)
+        table_top_lay.addWidget(self.btn_column_settings)
 
         self.btn_toggle_sidebar = QPushButton("🖼️ プレビュー非表示 ❯")
         self.btn_toggle_sidebar.setToolTip("画像プレビューサイドバーを非表示にしてテーブルを全幅に拡張します")
@@ -288,17 +323,10 @@ class ExperimentExplorerWidget(QWidget):
 
         preview_lay.addLayout(preview_top_lay)
 
-        # グラフプレビュー用タブウィジェット（同時に1枚表示、タブインデックス維持）
+        # グラフプレビュー用タブウィジェット（動的タブ生成、プレフィックス名ベースで選択維持）
         self.preview_tabs = QTabWidget()
-
-        self.preview_rewards = ImagePreviewLabel("報酬推移グラフ\n(learning_rewards_*.png)\nがありません")
-        self.preview_tabs.addTab(self.preview_rewards, "📈 報酬推移")
-
-        self.preview_steps = ImagePreviewLabel("ステップ推移グラフ\n(learning_steps_*.png)\nがありません")
-        self.preview_tabs.addTab(self.preview_steps, "📉 ステップ推移")
-
-        self.preview_trajectory = ImagePreviewLabel("移動軌跡\n(trajectory_*.png)\nがありません")
-        self.preview_tabs.addTab(self.preview_trajectory, "🗺️ 移動軌跡")
+        self.preview_tabs.currentChanged.connect(self._on_preview_tab_changed)
+        self._show_empty_preview_tab("ログ行を選択すると画像がプレビュー表示されます。")
 
         preview_lay.addWidget(self.preview_tabs, 1)
         self.splitter.addWidget(self.preview_container)
@@ -709,8 +737,25 @@ class ExperimentExplorerWidget(QWidget):
             return item.data(Qt.ItemDataRole.UserRole)
         return None
 
+    def _on_preview_tab_changed(self, index: int):
+        """ユーザーが手動でプレビュータブを切り替えた際、選択したプレフィックスを記憶"""
+        if 0 <= index < len(self._current_tab_keys):
+            self._last_selected_tab_key = self._current_tab_keys[index]
+
+    def _show_empty_preview_tab(self, placeholder_text: str = "この実験ログには画像ファイル (.png) がありません"):
+        """画像が存在しない、または選択解除時のプレースホルダー表示"""
+        self.preview_tabs.blockSignals(True)
+        self.preview_tabs.clear()
+        self._current_tab_keys = []
+        self._tab_preview_labels = {}
+
+        lbl = ImagePreviewLabel(placeholder_text)
+        lbl.show_placeholder(placeholder_text)
+        self.preview_tabs.addTab(lbl, "画像なし")
+        self.preview_tabs.blockSignals(False)
+
     def _on_row_selected(self):
-        """テーブルの行選択変更時: プレビュー画像を更新（タブインデックスは維持）"""
+        """テーブルの行選択変更時: プレビュー画像を動的タブで更新（プレフィックス名ベースで選択維持）"""
         record = self._get_selected_record()
         self._current_selected_record = record
 
@@ -724,18 +769,51 @@ class ExperimentExplorerWidget(QWidget):
             f"選択中: [{record.mode}]{shield_info} {record.folder_name}  ({record.display_timestamp})"
         )
 
+        # 1. 画像がない場合
+        if not record.images:
+            self._show_empty_preview_tab("この実験ログには画像ファイル (.png) がありません")
+            return
 
-        # タブの現在インデックスを保持したまま画像のみ更新
-        self.preview_rewards.set_image(record.images.get("rewards"))
-        self.preview_steps.set_image(record.images.get("steps"))
-        self.preview_trajectory.set_image(record.images.get("trajectory"))
+        # 2. 画像が存在する場合: アルファベット順にプレフィックスをソート
+        sorted_prefixes = sorted(list(record.images.keys()))
+
+        self.preview_tabs.blockSignals(True)
+
+        # 3. 現在のタブ構成と一致するか判定（同一構成なら画像差し替えのみ行いチラつき防止）
+        if sorted_prefixes == self._current_tab_keys:
+            for prefix in sorted_prefixes:
+                img_path = record.images.get(prefix)
+                if prefix in self._tab_preview_labels:
+                    self._tab_preview_labels[prefix].set_image(img_path)
+        else:
+            # タブの再構築
+            self.preview_tabs.clear()
+            self._tab_preview_labels.clear()
+            self._current_tab_keys = sorted_prefixes
+
+            for prefix in sorted_prefixes:
+                lbl = ImagePreviewLabel(f"{prefix}\n画像が読み込めません")
+                lbl.set_image(record.images.get(prefix))
+                self._tab_preview_labels[prefix] = lbl
+                # タブ名はプレフィックス文字列そのまま（案1）
+                self.preview_tabs.addTab(lbl, prefix)
+
+        # 4. タブ選択の維持（プレフィックス名キー方式）
+        target_idx = -1
+        if self._last_selected_tab_key and self._last_selected_tab_key in self._current_tab_keys:
+            target_idx = self._current_tab_keys.index(self._last_selected_tab_key)
+        elif self._current_tab_keys:
+            target_idx = 0
+
+        if target_idx >= 0 and target_idx < self.preview_tabs.count():
+            self.preview_tabs.setCurrentIndex(target_idx)
+
+        self.preview_tabs.blockSignals(False)
 
     def _clear_preview(self):
         """プレビュー表示をクリア"""
         self.lbl_preview_header.setText("ログ行を選択するとグラフがプレビュー表示されます。")
-        self.preview_rewards.show_placeholder()
-        self.preview_steps.show_placeholder()
-        self.preview_trajectory.show_placeholder()
+        self._show_empty_preview_tab("ログ行を選択すると画像がプレビュー表示されます。")
 
     def _on_cell_double_clicked(self, row: int, column: int):
         """行ダブルクリック時: アクション選択ダイアログを表示"""

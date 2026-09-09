@@ -17,14 +17,24 @@ class ImagePairItem:
     display_text: str
 
 
+import re
+
 def extract_prefix(filepath: str) -> str:
     """
-    ファイル名からエピソード番号やステップ数等のサフィックスを除去し、画像種別プレフィックスを抽出する。
+    ファイル名からエピソード番号やステップ数、タイムスタンプ等のサフィックスを除去し、画像種別プレフィックスを抽出する。
     例: 'learning_rewards_00100_00500.png' -> 'learning_rewards'
+        'learning_rewards_20260909_145945.png' -> 'learning_rewards'
         'trajectory_100.png' -> 'trajectory'
     """
     filename = os.path.basename(filepath)
     name_no_ext = os.path.splitext(filename)[0]
+
+    # 1. タイムスタンプサフィックス (_YYYYMMDD_HHMMSS or _YYYYMMDD-HHMMSS) の除去
+    m_ts = re.sub(r'_\d{8}[_-]\d{6}$', '', name_no_ext)
+    if m_ts != name_no_ext:
+        return m_ts
+
+    # 2. アンダースコア区切りの数値サフィックス (_00100_00500 等) の除去
     parts = name_no_ext.split('_')
     if len(parts) >= 3 and parts[-2].isdigit() and parts[-1].isdigit():
         return "_".join(parts[:-2])

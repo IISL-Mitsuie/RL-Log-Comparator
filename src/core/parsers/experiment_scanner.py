@@ -61,6 +61,25 @@ def format_timestamp(timestamp_str: str) -> str:
     return timestamp_str
 
 
+def _select_latest_image(img_paths: list[str]) -> str:
+    """
+    同一プレフィックスの複数画像から最新の1枚を選定（方針A）。
+    ファイル名の降順（エピソード番号・ステップ数・タイムスタンプの最大値）および更新日時をキーとする。
+    """
+    if len(img_paths) == 1:
+        return img_paths[0]
+
+    def sort_key(p: str):
+        try:
+            mtime = os.path.getmtime(p)
+        except OSError:
+            mtime = 0.0
+        return (os.path.basename(p), mtime)
+
+    sorted_paths = sorted(img_paths, key=sort_key, reverse=True)
+    return sorted_paths[0]
+
+
 def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
     """
     単一の実験出力フォルダを解析し、ExperimentLogRecord を生成する。
@@ -125,19 +144,15 @@ def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
 
     config_flat = flatten_dict(config_data)
 
-    # 3. 画像ファイルの検出
-    images: dict[str, str] = {}
+    # 3. 画像ファイルの検出（プレフィックスごとにグループ化し、最新1枚を選定）
+    prefix_to_paths: dict[str, list[str]] = {}
     for img_path in glob.glob(os.path.join(abs_path, "*.png")):
-        base = os.path.basename(img_path).lower()
-        if "learning_rewards" in base:
-            images["rewards"] = img_path
-        elif "learning_steps" in base:
-            images["steps"] = img_path
-        elif "trajectory" in base:
-            images["trajectory"] = img_path
-        else:
-            prefix = extract_prefix(img_path)
-            images[prefix] = img_path
+        prefix = extract_prefix(img_path)
+        prefix_to_paths.setdefault(prefix, []).append(img_path)
+
+    images: dict[str, str] = {}
+    for prefix, paths in prefix_to_paths.items():
+        images[prefix] = _select_latest_image(paths)
 
     # 4. CSV ファイルの検出
     csv_files = glob.glob(os.path.join(abs_path, "learning_log_*.csv"))
