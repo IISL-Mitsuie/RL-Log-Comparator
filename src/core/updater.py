@@ -21,8 +21,8 @@ GITHUB_API_LATEST_RELEASE_URL = "https://api.github.com/repos/{owner}/{repo}/rel
 @dataclass
 class UpdateInfo:
     """更新情報データクラス"""
-    version: str                                  # 例: "1.1.0"
-    tag_name: str                                 # 例: "v1.1.0"
+    version: str                                  # 例: "1.2.0"
+    tag_name: str                                 # 例: "v1.2.0"
     title: str                                   # リリースタイトル
     release_notes: str                           # リリースノート本文 (Markdown)
     release_url: str                             # GitHub リリースページ URL
