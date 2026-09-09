@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QMenu, QMessageBox, QAbstractItemView, QFrame, QComboBox
 )
 from PySide6.QtCore import Qt, Signal, QUrl
-from PySide6.QtGui import QPixmap, QDesktopServices, QAction, QFont, QColor
+from PySide6.QtGui import QPixmap, QDesktopServices, QColor
 
 from src.config import SETTINGS_KEY_RECENT_ROOT_DIRS, CLEAR_HISTORY_TEXT
 from src.core.history import RecentFolderManager
@@ -76,12 +76,15 @@ class ImagePreviewLabel(QLabel):
         self.show_placeholder()
 
     def set_image(self, file_path: Optional[str]):
+        """画像ファイルを読み込んでスケーリング表示（破損ファイルはプレースホルダー表示）"""
         if file_path and os.path.exists(file_path):
-            self._pixmap = QPixmap(file_path)
-            self._update_scaled()
-        else:
-            self._pixmap = None
-            self.show_placeholder()
+            pixmap = QPixmap(file_path)
+            if not pixmap.isNull():
+                self._pixmap = pixmap
+                self._update_scaled()
+                return
+        self._pixmap = None
+        self.show_placeholder()
 
     def show_placeholder(self, text: Optional[str] = None):
         self._pixmap = None

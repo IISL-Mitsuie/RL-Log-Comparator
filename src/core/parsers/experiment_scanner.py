@@ -9,7 +9,10 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 import yaml
 
-from src.core.parsers.image_pair import extract_prefix
+from src.core.parsers.image_pair import extract_prefix, select_latest_image
+
+# 後方互換・エイリアス
+_select_latest_image = select_latest_image
 
 
 # 重要度の高いキー（カラム一覧で優先表示）
@@ -61,25 +64,6 @@ def format_timestamp(timestamp_str: str) -> str:
     return timestamp_str
 
 
-def _select_latest_image(img_paths: list[str]) -> str:
-    """
-    同一プレフィックスの複数画像から最新の1枚を選定（方針A）。
-    ファイル名の降順（エピソード番号・ステップ数・タイムスタンプの最大値）および更新日時をキーとする。
-    """
-    if len(img_paths) == 1:
-        return img_paths[0]
-
-    def sort_key(p: str):
-        try:
-            mtime = os.path.getmtime(p)
-        except OSError:
-            mtime = 0.0
-        return (os.path.basename(p), mtime)
-
-    sorted_paths = sorted(img_paths, key=sort_key, reverse=True)
-    return sorted_paths[0]
-
-
 def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
     """
     単一の実験出力フォルダを解析し、ExperimentLogRecord を生成する。
@@ -98,9 +82,9 @@ def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
     display_timestamp = format_timestamp(timestamp_key)
 
     # 2. YAML ファイルの走査とパース
-    yaml_files = glob.glob(os.path.join(abs_path, "config_used_*.yaml"))
+    yaml_files = sorted(glob.glob(os.path.join(abs_path, "config_used_*.yaml")), reverse=True)
     if not yaml_files:
-        yaml_files = glob.glob(os.path.join(abs_path, "*.yaml"))
+        yaml_files = sorted(glob.glob(os.path.join(abs_path, "*.yaml")), reverse=True)
 
     config_data: dict[str, Any] = {}
     if yaml_files:

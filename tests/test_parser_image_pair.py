@@ -7,7 +7,7 @@ import unittest
 import tempfile
 import shutil
 from src.core.parsers.image_pair import (
-    extract_prefix, detect_image_pairs, ImagePairItem
+    extract_prefix, select_latest_image, detect_image_pairs, ImagePairItem
 )
 from tests.helpers import create_dummy_experiment_folder
 
@@ -26,6 +26,17 @@ class TestParserImagePair(unittest.TestCase):
         self.assertEqual(extract_prefix("trajectory_00100.png"), "trajectory")
         self.assertEqual(extract_prefix("custom_chart.png"), "custom_chart")
         self.assertEqual(extract_prefix("loss_step_10_20.png"), "loss_step")
+        self.assertEqual(extract_prefix("learning_rewards_20260909_145945.png"), "learning_rewards")
+        self.assertEqual(extract_prefix("learning_rewards_20260909-145945.png"), "learning_rewards")
+
+    def test_select_latest_image(self):
+        img1 = os.path.join(self.test_dir, "rewards_00100.png")
+        img2 = os.path.join(self.test_dir, "rewards_00500.png")
+        with open(img1, "w") as f:
+            f.write("1")
+        with open(img2, "w") as f:
+            f.write("2")
+        self.assertEqual(select_latest_image([img1, img2]), img2)
 
     def test_detect_image_pairs(self):
         folder_a = create_dummy_experiment_folder(
@@ -61,6 +72,22 @@ class TestParserImagePair(unittest.TestCase):
         self.assertEqual(pair_dict["only_b"].display_text, "only_b (Bのみ)")
         self.assertIsNone(pair_dict["only_b"].file_a)
         self.assertIsNotNone(pair_dict["only_b"].file_b)
+
+    def test_detect_image_pairs_with_multiple_images_latest(self):
+        folder_a = create_dummy_experiment_folder(
+            self.test_dir,
+            folder_name="folder_a_multi",
+            images=["rewards_00100.png", "rewards_00500.png"]
+        )
+        folder_b = create_dummy_experiment_folder(
+            self.test_dir,
+            folder_name="folder_b_multi",
+            images=["rewards_00200.png"]
+        )
+        pairs = detect_image_pairs(folder_a, folder_b)
+        self.assertEqual(len(pairs), 1)
+        self.assertTrue(pairs[0].file_a.endswith("rewards_00500.png"))
+        self.assertTrue(pairs[0].file_b.endswith("rewards_00200.png"))
 
     def test_empty_folders(self):
         self.assertEqual(detect_image_pairs("", ""), [])
