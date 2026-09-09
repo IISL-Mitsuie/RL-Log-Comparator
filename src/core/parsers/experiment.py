@@ -32,9 +32,16 @@ def get_experiment_info(folder_path: str) -> str:
             with open(yaml_files[0], 'r', encoding='utf-8') as f:
                 data = yaml.safe_load(f) or {}
                 if 'mode' in data:
-                    mode = str(data['mode'])
+                    raw_mode = data['mode']
+                    if isinstance(raw_mode, dict):
+                        mode = str(raw_mode.get('name', raw_mode.get('algorithm', parent_name)))
+                    elif isinstance(raw_mode, str):
+                        mode = raw_mode
+                    elif raw_mode is not None:
+                        mode = str(raw_mode)
                 elif 'algorithm' in data:
                     mode = str(data['algorithm'])
+
         except Exception:
             pass
 

@@ -6,6 +6,10 @@ RL-Log-Comparator アプリケーション共通定数
 SETTINGS_ORG = "IISL"
 SETTINGS_APP = "RL-Log-Comparator"
 SETTINGS_KEY_RECENT_FOLDERS = "recent_folders"
+SETTINGS_KEY_RECENT_ROOT_DIRS = "recent_root_dirs"
+SETTINGS_KEY_LAST_ROOT_DIR = "last_root_dir"
+SETTINGS_KEY_LAST_FOLDER_A = "last_folder_a"
+SETTINGS_KEY_LAST_FOLDER_B = "last_folder_b"
 
 # 履歴設定
 MAX_HISTORY_COUNT = 5

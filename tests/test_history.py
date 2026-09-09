@@ -89,14 +89,81 @@ class TestHistory(unittest.TestCase):
         self.assertEqual(len(history_after), 1)
         self.assertEqual(history_after[0], os.path.abspath(self.dirs[0]))
 
-    def test_clear_history(self):
-        self.mgr.add_folder(self.dirs[0])
-        self.mgr.add_folder(self.dirs[1])
-        self.assertEqual(len(self.mgr.load_history()), 2)
+    def test_custom_settings_key(self):
+        mgr_custom = RecentFolderManager(
+            org="IISL_TestHistory",
+            app="RL_Log_Comparator_TestHistory",
+            settings_key="custom_root_key",
+            max_count=3
+        )
+        mgr_custom.clear_history()
+        mgr_custom.add_folder(self.dirs[0])
+        mgr_custom.add_folder(self.dirs[1])
 
-        self.mgr.clear_history()
+        self.assertEqual(len(mgr_custom.load_history()), 2)
+        # 通常のマネージャーには影響しないこと
         self.assertEqual(self.mgr.load_history(), [])
+        mgr_custom.clear_history()
+
+
+class TestSessionStateManager(unittest.TestCase):
+    """SessionStateManager のテスト"""
+
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+        self.dir_root = os.path.join(self.test_dir, "root")
+        self.dir_a = os.path.join(self.test_dir, "dir_a")
+        self.dir_b = os.path.join(self.test_dir, "dir_b")
+        os.makedirs(self.dir_root, exist_ok=True)
+        os.makedirs(self.dir_a, exist_ok=True)
+        os.makedirs(self.dir_b, exist_ok=True)
+
+        from src.core.history import SessionStateManager
+        self.session_mgr = SessionStateManager(
+            org="IISL_TestSession",
+            app="RL_Log_Comparator_TestSession"
+        )
+        self.session_mgr.clear_last_paths()
+
+    def tearDown(self):
+        self.session_mgr.clear_last_paths()
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def test_save_and_load_paths(self):
+        self.session_mgr.save_last_paths(
+            root_dir=self.dir_root,
+            folder_a=self.dir_a,
+            folder_b=self.dir_b
+        )
+
+        paths = self.session_mgr.load_last_paths()
+        self.assertEqual(paths.get("root_dir"), os.path.abspath(self.dir_root))
+        self.assertEqual(paths.get("folder_a"), os.path.abspath(self.dir_a))
+        self.assertEqual(paths.get("folder_b"), os.path.abspath(self.dir_b))
+
+    def test_load_nonexistent_paths_filtered(self):
+        fake_path = os.path.join(self.test_dir, "nonexistent")
+        self.session_mgr.save_last_paths(
+            root_dir=self.dir_root,
+            folder_a=fake_path,
+            folder_b=self.dir_b
+        )
+
+        paths = self.session_mgr.load_last_paths()
+        self.assertEqual(paths.get("root_dir"), os.path.abspath(self.dir_root))
+        self.assertNotIn("folder_a", paths)
+        self.assertEqual(paths.get("folder_b"), os.path.abspath(self.dir_b))
+
+    def test_clear_last_paths(self):
+        self.session_mgr.save_last_paths(
+            root_dir=self.dir_root,
+            folder_a=self.dir_a,
+            folder_b=self.dir_b
+        )
+        self.session_mgr.clear_last_paths()
+        self.assertEqual(self.session_mgr.load_last_paths(), {})
 
 
 if __name__ == "__main__":
     unittest.main()
+
