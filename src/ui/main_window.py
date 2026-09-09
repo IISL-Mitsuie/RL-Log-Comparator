@@ -20,13 +20,15 @@ from src.config import (
     UPDATE_CHECK_TIMEOUT_SEC
 )
 from src.core.paths import get_app_icon_path
-from src.core.history import RecentFolderManager
+from src.core.history import RecentFolderManager, SessionStateManager
 from src.core.updater import check_for_updates_async, fetch_latest_release_info, UpdateInfo
 from src.ui.dialogs.update_dialog import UpdateDialog
 from src.ui.widgets.yaml_diff_widget import YamlDiffWidget
 from src.ui.widgets.image_compare_widget import ImageCompareWidget
 from src.ui.widgets.csv_compare_widget import CsvCompareWidget
 from src.ui.widgets.log_spec_widget import LogSpecWidget
+from src.ui.widgets.experiment_explorer_widget import ExperimentExplorerWidget
+
 
 
 class ExperimentCompareApp(QMainWindow):
@@ -43,6 +45,7 @@ class ExperimentCompareApp(QMainWindow):
             self.setWindowIcon(QIcon(icon_path))
 
         self.history_mgr = RecentFolderManager()
+        self.session_mgr = SessionStateManager()
         self._history = self.history_mgr.load_history()
         self._last_loaded_a = ""
         self._last_loaded_b = ""
@@ -50,6 +53,9 @@ class ExperimentCompareApp(QMainWindow):
 
         self._init_ui()
         self._update_history_combos()
+
+        # 前回終了時のフォルダパスを復元（充足）
+        self._restore_last_session()
 
         # 起動時にバックグラウンドで最新バージョンを非同期確認
         self._start_background_update_check()
@@ -112,19 +118,47 @@ class ExperimentCompareApp(QMainWindow):
         # 2. 中央: タブウィジェット
         self.tabs = QTabWidget()
 
+        self.tab_explorer = ExperimentExplorerWidget()
+        self.tab_explorer.request_set_folder_a.connect(self._on_set_folder_a_from_explorer)
+        self.tab_explorer.request_set_folder_b.connect(self._on_set_folder_b_from_explorer)
+        self.tabs.addTab(self.tab_explorer, "1. 実験ログ一覧・探索 (Log Explorer)")
+
         self.tab_yaml = YamlDiffWidget()
-        self.tabs.addTab(self.tab_yaml, "1. ハイパーパラメータ差分 (YAML)")
+        self.tabs.addTab(self.tab_yaml, "2. ハイパーパラメータ差分 (YAML)")
 
         self.tab_images = ImageCompareWidget()
-        self.tabs.addTab(self.tab_images, "2. 画像目視比較 (Side-by-Side)")
+        self.tabs.addTab(self.tab_images, "3. 画像目視比較 (Side-by-Side)")
 
         self.tab_csv = CsvCompareWidget()
-        self.tabs.addTab(self.tab_csv, "3. 数値ログ比較グラフ (CSV)")
+        self.tabs.addTab(self.tab_csv, "4. 数値ログ比較グラフ (CSV)")
 
         self.tab_spec = LogSpecWidget()
-        self.tabs.addTab(self.tab_spec, "4. ログ仕様ガイド・エクスポート (Spec & Export)")
+        self.tabs.addTab(self.tab_spec, "5. ログ仕様ガイド・エクスポート (Spec & Export)")
 
         main_layout.addWidget(self.tabs, 1)
+
+    def _on_set_folder_a_from_explorer(self, folder_path: str) -> None:
+        """エクスプローラータブからのフォルダA設定要求"""
+        if not folder_path or not os.path.exists(folder_path):
+            return
+        norm_folder = os.path.abspath(folder_path)
+        self.combo_folder_a.setEditText(norm_folder)
+        self._history = self.history_mgr.add_folder(norm_folder)
+        self._update_history_combos()
+        self.combo_folder_a.setEditText(norm_folder)
+        self._check_auto_load()
+
+    def _on_set_folder_b_from_explorer(self, folder_path: str) -> None:
+        """エクスプローラータブからのフォルダB設定要求"""
+        if not folder_path or not os.path.exists(folder_path):
+            return
+        norm_folder = os.path.abspath(folder_path)
+        self.combo_folder_b.setEditText(norm_folder)
+        self._history = self.history_mgr.add_folder(norm_folder)
+        self._update_history_combos()
+        self.combo_folder_b.setEditText(norm_folder)
+        self._check_auto_load()
+
 
 
     def _update_history_combos(self) -> None:
@@ -235,6 +269,36 @@ class ExperimentCompareApp(QMainWindow):
         self.tab_yaml.load_yamls(folder_a, folder_b)
         self.tab_images.load_folders(folder_a, folder_b)
         self.tab_csv.load_csvs(folder_a, folder_b)
+
+    def _restore_last_session(self) -> None:
+        """前回終了時に開いていたフォルダパスを復元（充足）"""
+        last_paths = self.session_mgr.load_last_paths()
+        root_dir = last_paths.get("root_dir")
+        folder_a = last_paths.get("folder_a")
+        folder_b = last_paths.get("folder_b")
+
+        if root_dir:
+            self.tab_explorer.set_root_directory(root_dir)
+
+        if folder_a:
+            self.combo_folder_a.setEditText(folder_a)
+        if folder_b:
+            self.combo_folder_b.setEditText(folder_b)
+
+        if folder_a and folder_b:
+            self._check_auto_load()
+
+    def closeEvent(self, event) -> None:
+        """アプリケーション終了時に現在のフォルダパスを記録"""
+        root_dir = self.tab_explorer.get_root_directory()
+        folder_a = self.combo_folder_a.currentText().strip()
+        folder_b = self.combo_folder_b.currentText().strip()
+        self.session_mgr.save_last_paths(
+            root_dir=root_dir,
+            folder_a=folder_a,
+            folder_b=folder_b
+        )
+        super().closeEvent(event)
 
     # -------------------------------------------------------------------------
     # 自動更新・バージョン確認関連
