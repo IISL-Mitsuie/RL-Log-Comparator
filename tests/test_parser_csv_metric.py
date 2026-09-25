@@ -126,6 +126,62 @@ class TestParserCsvMetric(unittest.TestCase):
         self.assertEqual(res_col.y_ma[0], 100.0)
         self.assertEqual(res_col.y_ma[1], 50.0)
 
+    def test_generic_numeric_columns_and_aliases(self):
+        """汎用強化学習CSV (Gym / CleanRL / SB3想定) のエイリアスおよび任意数値列の検証"""
+        from src.core.parsers.csv_metric import (
+            get_available_numeric_columns, find_column_by_aliases,
+            get_available_metrics, REWARD_ALIASES, STEPS_ALIASES
+        )
+        # 代表的なRLライブラリのCSV形式 (小文字カラム)
+        df = pd.DataFrame({
+            "step": [100, 200, 300],
+            "reward": [1.5, 3.0, 4.5],
+            "episode_length": [10, 20, 30],
+            "loss": [0.5, 0.3, 0.1],
+            "critic_loss": [0.2, 0.15, 0.05],
+            "entropy": [1.2, 1.1, 0.9]
+        })
+
+        # 1. 数値列の抽出 (step 等の管理列は除外される)
+        numeric_cols = get_available_numeric_columns(df)
+        self.assertIn("reward", numeric_cols)
+        self.assertIn("loss", numeric_cols)
+        self.assertIn("critic_loss", numeric_cols)
+        self.assertIn("entropy", numeric_cols)
+        self.assertNotIn("step", numeric_cols)
+
+        # 2. エイリアス解決
+        col_rew = find_column_by_aliases(df, REWARD_ALIASES)
+        self.assertEqual(col_rew, "reward")
+        col_stp = find_column_by_aliases(df, STEPS_ALIASES)
+        self.assertEqual(col_stp, "episode_length")
+
+        # 3. 指標一覧生成 (案A: グループ化)
+        metrics = get_available_metrics(df, None)
+        keys = [m.key for m in metrics]
+        categories = [m.category for m in metrics]
+
+        # 主要指標として報酬・ステップが含まれる
+        self.assertIn("__reward__", keys)
+        self.assertIn("__steps__", keys)
+        # 一般数値列として loss, critic_loss, entropy が含まれる
+        self.assertIn("loss", keys)
+        self.assertIn("critic_loss", keys)
+        self.assertIn("entropy", keys)
+
+        # 4. 任意数値列のプロット計算
+        res_loss = compute_metric_series(df, metric_target="loss", window=2, label_prefix="TestLoss")
+        self.assertTrue(res_loss.has_data)
+        self.assertEqual(res_loss.y_label, "loss")
+        self.assertAlmostEqual(res_loss.y_ma[0], 0.5)
+        self.assertAlmostEqual(res_loss.y_ma[1], 0.4)  # (0.5+0.3)/2
+
+        # 5. エイリアスキー指定での計算
+        res_rew = compute_metric_series(df, metric_target="__reward__", window=1, label_prefix="TestRew")
+        self.assertTrue(res_rew.has_data)
+        self.assertEqual(list(res_rew.y_raw), [1.5, 3.0, 4.5])
+
 
 if __name__ == "__main__":
     unittest.main()
+
