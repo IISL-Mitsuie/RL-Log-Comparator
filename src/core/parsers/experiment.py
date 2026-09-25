@@ -3,14 +3,15 @@
 """
 
 import os
-import glob
 import re
-import yaml
+from typing import Optional
+
+from src.core.parsers.yaml_diff import read_yaml_file
 
 
-def get_experiment_info(folder_path: str) -> str:
+def get_experiment_info(folder_path: Optional[str]) -> str:
     """
-    フォルダパスから学習モード（RL, S-SAP, Q-SAP等）とタイムスタンプを抽出して整形文字列を返す。
+    フォルダパスから学習モード（RL, S-SAP, Q-SAP, PPO等）とタイムスタンプを抽出して整形文字列を返す。
     例: '[S-SAP] 20260801_235449'
     """
     if not folder_path or not os.path.exists(folder_path):
@@ -26,23 +27,17 @@ def get_experiment_info(folder_path: str) -> str:
         timestamp = match.group(1)
 
     mode = parent_name
-    yaml_files = glob.glob(os.path.join(abs_path, "config_used_*.yaml"))
-    if yaml_files:
-        try:
-            with open(yaml_files[0], 'r', encoding='utf-8') as f:
-                data = yaml.safe_load(f) or {}
-                if 'mode' in data:
-                    raw_mode = data['mode']
-                    if isinstance(raw_mode, dict):
-                        mode = str(raw_mode.get('name', raw_mode.get('algorithm', parent_name)))
-                    elif isinstance(raw_mode, str):
-                        mode = raw_mode
-                    elif raw_mode is not None:
-                        mode = str(raw_mode)
-                elif 'algorithm' in data:
-                    mode = str(data['algorithm'])
-
-        except Exception:
-            pass
+    data = read_yaml_file(abs_path)
+    if data:
+        if 'mode' in data:
+            raw_mode = data['mode']
+            if isinstance(raw_mode, dict):
+                mode = str(raw_mode.get('name', raw_mode.get('algorithm', parent_name)))
+            elif isinstance(raw_mode, str):
+                mode = raw_mode
+            elif raw_mode is not None:
+                mode = str(raw_mode)
+        elif 'algorithm' in data:
+            mode = str(data['algorithm'])
 
     return f"[{mode}] {timestamp}"

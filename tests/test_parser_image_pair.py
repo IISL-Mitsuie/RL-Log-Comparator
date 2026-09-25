@@ -98,6 +98,41 @@ class TestParserImagePair(unittest.TestCase):
         self.assertEqual(detect_image_pairs("", ""), [])
         self.assertEqual(detect_image_pairs("non_existent", "non_existent"), [])
 
+    def test_detect_multi_format_images(self):
+        """PNG 以外の形式 (.jpg, .jpeg, .webp, .bmp) の画像検出テスト"""
+        folder_multi = os.path.join(self.test_dir, "folder_multi")
+        os.makedirs(folder_multi, exist_ok=True)
+        with open(os.path.join(folder_multi, "learning_curve.jpg"), "w") as f:
+            f.write("jpg")
+        with open(os.path.join(folder_multi, "trajectory.WEBP"), "w") as f:
+            f.write("webp")
+        with open(os.path.join(folder_multi, "eval_plot.jpeg"), "w") as f:
+            f.write("jpeg")
+
+        from src.core.parsers.image_pair import get_folder_image_list
+        img_list = get_folder_image_list(folder_multi)
+        prefixes = [item[0] for item in img_list]
+
+        self.assertIn("learning_curve", prefixes)
+        self.assertIn("trajectory", prefixes)
+        self.assertIn("eval_plot", prefixes)
+
+    def test_get_folder_images_dict(self):
+        """get_folder_images_dict の動作テスト"""
+        folder_dict_test = os.path.join(self.test_dir, "folder_dict_test")
+        os.makedirs(folder_dict_test, exist_ok=True)
+        img1 = os.path.join(folder_dict_test, "learning_rewards_20260901_100000.png")
+        img2 = os.path.join(folder_dict_test, "trajectory_20260901_100000.jpg")
+        with open(img1, "w") as f: f.write("img1")
+        with open(img2, "w") as f: f.write("img2")
+
+        from src.core.parsers.image_pair import get_folder_images_dict
+        d = get_folder_images_dict(folder_dict_test)
+        self.assertIn("learning_rewards", d)
+        self.assertEqual(d["learning_rewards"], img1)
+        self.assertIn("trajectory", d)
+        self.assertEqual(d["trajectory"], img2)
+
 
 if __name__ == "__main__":
     unittest.main()

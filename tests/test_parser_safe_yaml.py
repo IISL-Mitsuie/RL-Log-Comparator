@@ -40,6 +40,40 @@ continual_learning:
     def test_safe_load_yaml_nonexistent(self):
         self.assertEqual(safe_load_yaml("nonexistent_file_xyz.yaml"), {})
 
+    def test_safe_load_json(self):
+        json_content = '{"learning_rate": 0.001, "batch_size": 64, "algorithm": "PPO"}'
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False) as f:
+            f.write(json_content)
+            tmp_path = f.name
+
+        try:
+            data = safe_load_yaml(tmp_path)
+            self.assertEqual(data["learning_rate"], 0.001)
+            self.assertEqual(data["batch_size"], 64)
+            self.assertEqual(data["algorithm"], "PPO")
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    def test_find_config_file(self):
+        from src.core.parsers.safe_yaml import find_config_file
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # 何もない場合
+            self.assertIsNone(find_config_file(tmp_dir))
+
+            # params.json を作成
+            p_json = os.path.join(tmp_dir, "params.json")
+            with open(p_json, "w") as f:
+                f.write("{}")
+            self.assertEqual(find_config_file(tmp_dir), p_json)
+
+            # より優先度の高い config_used_123.yaml を作成
+            c_yaml = os.path.join(tmp_dir, "config_used_123.yaml")
+            with open(c_yaml, "w") as f:
+                f.write("{}")
+            self.assertEqual(find_config_file(tmp_dir), c_yaml)
+
 
 if __name__ == '__main__':
     unittest.main()
+

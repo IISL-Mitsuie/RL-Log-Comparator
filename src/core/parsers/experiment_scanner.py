@@ -9,8 +9,9 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 import yaml
 
-from src.core.parsers.image_pair import extract_prefix, select_latest_image
-from src.core.parsers.safe_yaml import safe_load_yaml
+from src.core.parsers.image_pair import extract_prefix, select_latest_image, get_folder_images_dict
+from src.core.parsers.safe_yaml import safe_load_yaml, find_config_file
+from src.core.parsers.csv_metric import find_log_csv
 
 # 後方互換・エイリアス
 _select_latest_image = select_latest_image
@@ -86,19 +87,23 @@ def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
     folder_name = os.path.basename(abs_path)
     parent_name = os.path.basename(os.path.dirname(abs_path))
 
-    # 1. タイムスタンプの抽出
+    # 1. タイムスタンプの抽出 (マッチしない場合はフォルダ最終更新日時をフォールバック)
     match = re.search(r'(\d{8}_\d{6})', folder_name)
-    timestamp_key = match.group(1) if match else folder_name
-    display_timestamp = format_timestamp(timestamp_key)
+    if match:
+        timestamp_key = match.group(1)
+        display_timestamp = format_timestamp(timestamp_key)
+    else:
+        timestamp_key = folder_name
+        try:
+            from datetime import datetime
+            mtime = os.path.getmtime(abs_path)
+            display_timestamp = datetime.fromtimestamp(mtime).strftime("%Y/%m/%d %H:%M:%S")
+        except Exception:
+            display_timestamp = folder_name
 
-    # 2. YAML ファイルの走査とパース
-    yaml_files = sorted(glob.glob(os.path.join(abs_path, "config_used_*.yaml")), reverse=True)
-    if not yaml_files:
-        yaml_files = sorted(glob.glob(os.path.join(abs_path, "*.yaml")), reverse=True)
-
-    config_data: dict[str, Any] = {}
-    if yaml_files:
-        config_data = safe_load_yaml(yaml_files[0])
+    # 2. 設定ファイル (YAML / JSON) の走査とパース
+    config_file = find_config_file(abs_path)
+    config_data: dict[str, Any] = safe_load_yaml(config_file) if config_file else {}
 
     # モードおよび Shield の特定
     mode = parent_name
@@ -165,30 +170,15 @@ def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
 
     config_flat = flatten_dict(config_data)
 
-    # 3. 画像ファイルの検出（プレフィックスごとにグループ化し、最新1枚を選定）
-    prefix_to_paths: dict[str, list[str]] = {}
-    for img_path in glob.glob(os.path.join(abs_path, "*.png")):
-        prefix = extract_prefix(img_path)
-        prefix_to_paths.setdefault(prefix, []).append(img_path)
-
-    images: dict[str, str] = {}
-    for prefix, paths in prefix_to_paths.items():
-        images[prefix] = _select_latest_image(paths)
+    # 3. 画像ファイルの検出（プレフィックスごとに最新1枚を選定）
+    images: dict[str, str] = get_folder_images_dict(abs_path)
 
     # 4. CSV ファイルの検出（全タスク統合ログを最優先）
-    csv_candidates = sorted(glob.glob(os.path.join(abs_path, "learning_log_*.csv")))
-    main_csvs = [p for p in csv_candidates if "_task_" not in os.path.basename(p)]
-    if main_csvs:
-        csv_path = main_csvs[0]
-    elif csv_candidates:
-        csv_path = csv_candidates[0]
-    else:
-        other_csvs = sorted(glob.glob(os.path.join(abs_path, "*.csv")))
-        csv_path = other_csvs[0] if other_csvs else None
+    csv_path: Optional[str] = find_log_csv(abs_path)
 
     # 実験フォルダ判定条件:
-    # フォルダ名にタイムスタンプがある、またはYAML/CSV/画像が存在する
-    if not match and not yaml_files and not csv_path and not images:
+    # フォルダ名にタイムスタンプがある、または設定/CSV/画像が存在する
+    if not match and not config_file and not csv_path and not images:
         return None
 
     return ExperimentLogRecord(
@@ -230,6 +220,20 @@ def scan_experiments_directory(
                 if d.startswith("output_") or re.search(r'\d{8}_\d{6}', d):
                     candidate_folders.append(full_path)
                     dirs_to_remove.append(d)
+                else:
+                    # 任意フォルダ名対応: 直下に CSV または設定ファイルが存在する場合は実験フォルダと判定
+                    try:
+                        files = os.listdir(full_path)
+                        has_csv = any(f.lower().endswith(".csv") for f in files)
+                        has_cfg = any(f.lower().endswith((".yaml", ".yml", ".json")) for f in files)
+                        if has_csv and has_cfg:
+                            candidate_folders.append(full_path)
+                            dirs_to_remove.append(d)
+                        elif has_csv:
+                            candidate_folders.append(full_path)
+                            dirs_to_remove.append(d)
+                    except OSError:
+                        pass
             for d in dirs_to_remove:
                 dirs.remove(d)
     else:

@@ -1,0 +1,9 @@
+experiment_name: SAP_net_Safety_Weight_0_5
+algorithm: SAP-net
+safety:
+  safety_weight_lambda: 0.5
+  danger_threshold: 0.4
+  enable_online_intervention: true
+target_goal:
+  x: 11.0
+  y: 3.0

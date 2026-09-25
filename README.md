@@ -124,10 +124,10 @@ RL-Log-Comparator/
 ---
 
 ### 3.1. インストーラーを使用する場合 (推奨)
-1. 配布ファイル（GitHub Releases の Assets）から `RL_Log_Comparator_Setup_v1.2.0.exe` をダウンロードして実行します。
+1. 配布ファイル（GitHub Releases の Assets）から `RL_Log_Comparator_Setup_v1.3.0.exe` をダウンロードして実行します。
 2. 画面の指示に従ってインストールします（管理者権限不要、ユーザー個別領域 `{localappdata}\Programs\RL-Log-Comparator` に安全に配置されます）。
 3. デスクトップまたはスタートメニューの「RL-Log-Comparator」ショートカットから起動します。
-4. ※ インストーラを使用しない場合は、ポータブル版 ZIP（`RL_Log_Comparator_v1.2.0_portable.zip`）を解凍して `RL-Log-Comparator.exe` を直接起動することも可能です。
+4. ※ インストーラを使用しない場合は、ポータブル版 ZIP（`RL_Log_Comparator_v1.3.0_portable.zip`）を解凍して `RL-Log-Comparator.exe` を直接起動することも可能です。
 
 ---
 
@@ -196,7 +196,7 @@ python packaging/build.py
 1. ローカルの `%TEMP%` 内に一時的なクリーン仮想環境を作成（Google Drive などのクラウド同期ロックや権限問題を完全回避）。
 2. [`requirements.txt`](requirements.txt) から最小限の依存関係のみをインストール（不要な PyTorch や Webots などの重厚ライブラリを巻き込まず、配布サイズを最小化）。
 3. PyInstaller（[`packaging/RL-Log-Comparator.spec`](packaging/RL-Log-Comparator.spec)）により `--onedir` 形式で高速起動可能な単体実行ファイル群（`dist/RL-Log-Comparator/`）をビルド。
-4. Inno Setup 6 (`ISCC.exe`) を自動検知し、[`packaging/installer.iss`](packaging/installer.iss) を用いて配布用セットアップインストーラー（`dist_installer/RL_Log_Comparator_Setup_v1.2.0.exe`）を生成。
+4. Inno Setup 6 (`ISCC.exe`) を自動検知し、[`packaging/installer.iss`](packaging/installer.iss) を用いて配布用セットアップインストーラー（`dist_installer/RL_Log_Comparator_Setup_v1.3.0.exe`）を生成。
 5. ビルド完了後、中間の一時仮想環境・キャッシュを自動クリーンアップ。
 
 ---

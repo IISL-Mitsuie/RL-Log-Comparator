@@ -9,6 +9,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from src.config import SUPPORTED_IMAGE_EXTENSIONS
+
 
 @dataclass
 class ImagePairItem:
@@ -135,13 +137,23 @@ def select_latest_image(img_paths: list[str]) -> str:
 
 def get_folder_image_list(folder_path: str) -> list[tuple[str, str, str]]:
     """
-    指定フォルダ配下のPNG画像を走査し、
+    指定フォルダ配下の画像を走査（PNG, JPG, BMP, WebP等）し、
     [(プレフィックス, 表示名, 最新ファイルパス), ...] のリストをソート順で返す。
     """
     if not folder_path or not os.path.isdir(folder_path):
         return []
 
-    imgs = glob.glob(os.path.join(folder_path, "*.png"))
+    imgs = []
+    try:
+        for entry in os.listdir(folder_path):
+            full_path = os.path.join(folder_path, entry)
+            if os.path.isfile(full_path):
+                ext = os.path.splitext(entry)[1].lower()
+                if ext in SUPPORTED_IMAGE_EXTENSIONS:
+                    imgs.append(full_path)
+    except OSError:
+        pass
+
     prefix_to_paths: dict[str, list[str]] = {}
     for p in imgs:
         prefix = extract_prefix(p)
@@ -155,6 +167,15 @@ def get_folder_image_list(folder_path: str) -> list[tuple[str, str, str]]:
 
     results.sort(key=lambda item: _get_prefix_sort_key(item[0]))
     return results
+
+
+def get_folder_images_dict(folder_path: str) -> dict[str, str]:
+    """
+    指定フォルダ配下の画像を走査し、プレフィックスをキー、最新画像パスを値とする辞書を返す。
+    例: {"learning_rewards": "/path/to/learning_rewards_20260901_100000.png", ...}
+    """
+    image_list = get_folder_image_list(folder_path)
+    return {prefix: file_path for prefix, _, file_path in image_list}
 
 
 def detect_image_pairs(folder_a: str, folder_b: str) -> list[ImagePairItem]:

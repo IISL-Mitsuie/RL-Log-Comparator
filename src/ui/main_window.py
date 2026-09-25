@@ -87,7 +87,7 @@ class ExperimentCompareApp(QMainWindow):
         self.combo_folder_a.setEditable(True)
         self.combo_folder_a.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         if self.combo_folder_a.lineEdit():
-            self.combo_folder_a.lineEdit().setPlaceholderText("output_YYYYMMDD_HHMMSS フォルダへのパス (または履歴から選択)")
+            self.combo_folder_a.lineEdit().setPlaceholderText("実験ログフォルダへのパス (または履歴から選択)")
             self.combo_folder_a.lineEdit().textChanged.connect(self._check_auto_load)
         self.combo_folder_a.activated.connect(lambda idx: self._on_combo_activated(is_target_a=True, index=idx))
         lay_a.addWidget(self.combo_folder_a, 1)
@@ -103,7 +103,7 @@ class ExperimentCompareApp(QMainWindow):
         self.combo_folder_b.setEditable(True)
         self.combo_folder_b.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         if self.combo_folder_b.lineEdit():
-            self.combo_folder_b.lineEdit().setPlaceholderText("output_YYYYMMDD_HHMMSS フォルダへのパス (または履歴から選択)")
+            self.combo_folder_b.lineEdit().setPlaceholderText("実験ログフォルダへのパス (または履歴から選択)")
             self.combo_folder_b.lineEdit().textChanged.connect(self._check_auto_load)
         self.combo_folder_b.activated.connect(lambda idx: self._on_combo_activated(is_target_a=False, index=idx))
         lay_b.addWidget(self.combo_folder_b, 1)

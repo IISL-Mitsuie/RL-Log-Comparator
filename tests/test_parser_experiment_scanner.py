@@ -145,3 +145,34 @@ def test_scan_experiments_directory_recursive(tmp_path):
     # サブフォルダ直下を非再帰走査
     records_sub, _ = scan_experiments_directory(str(s_sap_dir), recursive=False)
     assert len(records_sub) == 2
+
+
+def test_parse_single_experiment_generic_rl(tmp_path):
+    """タイムスタンプ無しのフォルダ名、JSON設定、JPG画像、汎用CSVの認識テスト"""
+    gen_folder = tmp_path / "ppo_cartpole_run1"
+    gen_folder.mkdir()
+
+    # JSON設定ファイル
+    with open(gen_folder / "config.json", "w", encoding="utf-8") as f:
+        f.write('{"algorithm": "PPO", "learning_rate": 0.0003, "gamma": 0.99}')
+
+    # 汎用CSV
+    with open(gen_folder / "progress.csv", "w", encoding="utf-8") as f:
+        f.write("step,reward,loss\n1,10.0,0.5\n2,20.0,0.3\n")
+
+    # JPG画像
+    with open(gen_folder / "learning_curve.jpg", "w") as f:
+        f.write("jpg")
+
+    record = parse_single_experiment(str(gen_folder))
+    assert record is not None
+    assert record.folder_name == "ppo_cartpole_run1"
+    assert record.timestamp_key == "ppo_cartpole_run1"
+    # タイムスタンプが無くても更新日時のフォーマット文字列 (YYYY/MM/DD HH:MM:SS) が入る
+    assert "/" in record.display_timestamp
+    assert record.mode == "PPO"
+    assert record.config_flat["learning_rate"] == 0.0003
+    assert "learning_curve" in record.images
+    assert record.csv_path is not None
+    assert record.csv_path.endswith("progress.csv")
+

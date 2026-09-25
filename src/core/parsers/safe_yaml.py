@@ -5,9 +5,35 @@ Windows環境のパス表記などでダブルクォート内にエスケープ�
 """
 
 import os
+import glob
 import re
+import json
 from typing import Any, Optional
 import yaml
+
+
+def find_config_file(folder_path: str) -> Optional[str]:
+    """
+    指定フォルダ配下から設定ファイル (YAML / JSON) を探索して最優先のファイルパスを返す。
+    優先順: config_used_*.yaml -> *.yaml -> *.yml -> config*.json -> params*.json -> *.json
+    見つからない場合は None を返す。
+    """
+    if not folder_path or not os.path.isdir(folder_path):
+        return None
+
+    patterns = [
+        "config_used_*.yaml",
+        "*.yaml",
+        "*.yml",
+        "config*.json",
+        "params*.json",
+        "*.json"
+    ]
+    for pattern in patterns:
+        matched = sorted(glob.glob(os.path.join(folder_path, pattern)), reverse=True)
+        if matched:
+            return matched[0]
+    return None
 
 
 def sanitize_yaml_text(content: str) -> str:
@@ -26,13 +52,24 @@ def sanitize_yaml_text(content: str) -> str:
 
 def safe_load_yaml(file_path: str) -> dict[str, Any]:
     """
-    YAMLファイルを安全に読み込み、辞書として返す。
+    YAML または JSON ファイルを安全に読み込み、辞書として返す。
     読み込み失敗時や非辞書の場合は空辞書を返す。
     """
     if not file_path or not os.path.exists(file_path):
         return {}
 
-    # 1. 通常の yaml.safe_load を試みる
+    # 0. JSON ファイルの場合は標準の json.load を試行
+    if file_path.lower().endswith(".json"):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+                return {}
+        except Exception:
+            pass
+
+    # 1. 通常の yaml.safe_load を試みる (YAMLはJSONの上位互換)
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
