@@ -14,7 +14,8 @@ from matplotlib.figure import Figure
 
 from src.core.parsers.experiment import get_experiment_info
 from src.core.parsers.csv_metric import (
-    read_log_csv, compute_metric_series, get_available_tasks, METRIC_DEFINITIONS
+    read_log_csv, compute_metric_series, get_available_tasks,
+    get_available_metrics, METRIC_DEFINITIONS
 )
 
 
@@ -46,13 +47,10 @@ class CsvCompareWidget(QWidget):
         self.combo_task.currentIndexChanged.connect(self._on_task_changed)
         left_lay.addWidget(self.combo_task)
 
-        # 2. 表示指標一覧
+        # 2. 表示指標一覧 (動的生成)
         left_lay.addWidget(QLabel("表示指標一覧:"))
         self.list_metrics = QListWidget()
-        for name, idx, _, _ in METRIC_DEFINITIONS:
-            item = QListWidgetItem(name)
-            item.setData(Qt.ItemDataRole.UserRole, idx)
-            self.list_metrics.addItem(item)
+        self._update_metrics_list()
 
         self.list_metrics.currentRowChanged.connect(self.update_chart)
         left_lay.addWidget(self.list_metrics)
@@ -120,16 +118,56 @@ class CsvCompareWidget(QWidget):
         self.update_chart()
 
     def load_csvs(self, folder_a: str, folder_b: str) -> None:
-        """フォルダA/Bの CSV ログを読み込んでタスクリストおよびチャートを更新"""
+        """フォルダA/Bの CSV ログを読み込んでタスクリスト、指標リストおよびチャートを更新"""
         self.info_a = get_experiment_info(folder_a)
         self.info_b = get_experiment_info(folder_b)
 
         self.df_a = read_log_csv(folder_a)
         self.df_b = read_log_csv(folder_b)
 
-        # 利用可能タスク一覧の統合更新
+        # 指標一覧およびタスク一覧の統合更新
+        self._update_metrics_list()
         self._update_task_combo()
         self.update_chart()
+
+    def _update_metrics_list(self) -> None:
+        """AおよびBの DataFrame から利用可能な指標一覧を取得し、リストを動的再構築（案A: グループ化）"""
+        current_item = self.list_metrics.currentItem()
+        prev_key = current_item.data(Qt.ItemDataRole.UserRole) if current_item else None
+
+        self.list_metrics.blockSignals(True)
+        self.list_metrics.clear()
+
+        metrics = get_available_metrics(self.df_a, self.df_b)
+
+        last_category = None
+        target_row = 0
+
+        for m in metrics:
+            # カテゴリの変わり目にセパレータ（区切り見出し）を挿入
+            if m.category == "domain" and last_category == "primary":
+                sep_item = QListWidgetItem("── 独自ドメイン指標 ──")
+                sep_item.setFlags(Qt.ItemFlag.NoItemFlags)  # 選択不可
+                sep_item.setForeground(Qt.GlobalColor.darkGray)
+                self.list_metrics.addItem(sep_item)
+            elif m.category == "generic" and last_category != "generic":
+                sep_item = QListWidgetItem("── CSVその他の数値系列 ──")
+                sep_item.setFlags(Qt.ItemFlag.NoItemFlags)  # 選択不可
+                sep_item.setForeground(Qt.GlobalColor.darkGray)
+                self.list_metrics.addItem(sep_item)
+
+            last_category = m.category
+
+            item = QListWidgetItem(m.display_name)
+            item.setData(Qt.ItemDataRole.UserRole, m.key)
+            self.list_metrics.addItem(item)
+
+            if prev_key and m.key == prev_key:
+                target_row = self.list_metrics.count() - 1
+
+        self.list_metrics.blockSignals(False)
+        if self.list_metrics.count() > 0:
+            self.list_metrics.setCurrentRow(target_row)
 
     def _update_task_combo(self) -> None:
         """AおよびBの DataFrame からタスク一覧を統合してコンボボックスを更新"""
@@ -166,7 +204,11 @@ class CsvCompareWidget(QWidget):
         if row < 0:
             row = 0
         item = self.list_metrics.item(row)
-        metric_idx = item.data(Qt.ItemDataRole.UserRole) if item else 0
+        metric_key = item.data(Qt.ItemDataRole.UserRole) if item else 0
+
+        # セパレータ等の無効アイテムが選択された場合は何もしない
+        if metric_key is None:
+            return
 
         window = self.slider_ma.value()
         show_raw = self.cb_raw_data.isChecked()
@@ -174,8 +216,8 @@ class CsvCompareWidget(QWidget):
         show_boundaries = self.cb_task_boundaries.isChecked() and (task_id == 0)
         show_convergence = self.cb_converged_points.isChecked() and (task_id == 0)
 
-        data_a = compute_metric_series(self.df_a, metric_idx, window, f"A: {self.info_a}", task_filter_id=task_id)
-        data_b = compute_metric_series(self.df_b, metric_idx, window, f"B: {self.info_b}", task_filter_id=task_id)
+        data_a = compute_metric_series(self.df_a, metric_key, window, f"A: {self.info_a}", task_filter_id=task_id)
+        data_b = compute_metric_series(self.df_b, metric_key, window, f"B: {self.info_b}", task_filter_id=task_id)
 
         has_plot = False
         y_label = data_a.y_label or data_b.y_label or "Value"
@@ -212,13 +254,17 @@ class CsvCompareWidget(QWidget):
                     zorder=5, label="B 収束点 (★)"
                 )
 
+        # 片側のみデータが存在する場合の案内 (推奨動作)
+        if data_a.has_data and not data_b.has_data:
+            ax.plot([], [], ' ', label="B: [該当列なし]")
+        elif not data_a.has_data and data_b.has_data:
+            ax.plot([], [], ' ', label="A: [該当列なし]")
+
         # タスク境界線の描画 (縦破線)
         if show_boundaries:
-            # AまたはBのタスク境界線を描画（主にAを基準、AがなければB）
             boundaries = data_a.task_boundaries if data_a.task_boundaries else data_b.task_boundaries
             for ep_b, label_b in boundaries:
                 ax.axvline(x=ep_b, color="#888888", linestyle="--", alpha=0.7, linewidth=1.2)
-                # グラフ上部にタスクラベルを注記
                 ax.text(
                     ep_b + 1, 0.98, f" {label_b}",
                     transform=ax.get_xaxis_transform(),
@@ -232,9 +278,10 @@ class CsvCompareWidget(QWidget):
         else:
             x_label = "Total Episode (通算エピソード)"
 
+        title_metric_name = item.text() if item else y_label
         ax.set_xlabel(x_label, fontsize=11, color='#222222', labelpad=6)
         ax.set_ylabel(y_label, fontsize=11, color='#222222', labelpad=6)
-        ax.set_title(f"学習推移比較: {y_label}", fontsize=12, fontweight='bold', color='#222222', pad=10)
+        ax.set_title(f"学習推移比較: {title_metric_name}", fontsize=12, fontweight='bold', color='#222222', pad=10)
         ax.grid(True, linestyle="--", alpha=0.6, color='#cccccc')
         ax.tick_params(colors='#333333', labelsize=10)
         for spine in ax.spines.values():
@@ -255,3 +302,4 @@ class CsvCompareWidget(QWidget):
             pass
 
         self.canvas.draw()
+
