@@ -28,6 +28,11 @@ class TestParserImagePair(unittest.TestCase):
         self.assertEqual(extract_prefix("loss_step_10_20.png"), "loss_step")
         self.assertEqual(extract_prefix("learning_rewards_20260909_145945.png"), "learning_rewards")
         self.assertEqual(extract_prefix("learning_rewards_20260909-145945.png"), "learning_rewards")
+        # 継続学習画像
+        self.assertEqual(extract_prefix("continual_learning_curve_20260924_181649.png"), "continual_learning_curve")
+        self.assertEqual(extract_prefix("learning_rewards_20260924_181649_task_1.png"), "learning_rewards_task_1")
+        self.assertEqual(extract_prefix("learning_rewards_20260924_181649_task_6_unregistered.png"), "learning_rewards_task_6_unregistered")
+        self.assertEqual(extract_prefix("learning_steps_20260924_181649_task_2.png"), "learning_steps_task_2")
 
     def test_select_latest_image(self):
         img1 = os.path.join(self.test_dir, "rewards_00100.png")

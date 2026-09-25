@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 import yaml
 
+from src.core.parsers.safe_yaml import safe_load_yaml
+
 
 @dataclass
 class DiffNode:
@@ -25,17 +27,12 @@ def read_yaml_file(folder_path: str) -> dict:
     """フォルダ内の config_used_*.yaml (または *.yaml) を安全に読み込んで辞書を返す"""
     if not folder_path or not os.path.isdir(folder_path):
         return {}
-    yaml_files = glob.glob(os.path.join(folder_path, "config_used_*.yaml"))
+    yaml_files = sorted(glob.glob(os.path.join(folder_path, "config_used_*.yaml")), reverse=True)
     if not yaml_files:
-        yaml_files = glob.glob(os.path.join(folder_path, "*.yaml"))
+        yaml_files = sorted(glob.glob(os.path.join(folder_path, "*.yaml")), reverse=True)
     if not yaml_files:
         return {}
-    try:
-        with open(yaml_files[0], "r", encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
-    except Exception as e:
-        print(f"[ERROR] Failed to read YAML ({yaml_files[0]}): {e}")
-        return {}
+    return safe_load_yaml(yaml_files[0])
 
 
 def _compare_node(key: str, val_a: Any, val_b: Any, diff_only: bool) -> tuple[Optional[DiffNode], bool]:

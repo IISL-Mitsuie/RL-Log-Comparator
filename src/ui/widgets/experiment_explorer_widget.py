@@ -20,6 +20,9 @@ from src.core.history import RecentFolderManager
 from src.core.parsers.experiment_scanner import (
     scan_experiments_directory, ExperimentLogRecord
 )
+from src.core.parsers.image_pair import (
+    get_image_display_title, _get_prefix_sort_key
+)
 from src.ui.dialogs.experiment_action_dialog import (
     ExperimentActionDialog, ExperimentAction
 )
@@ -462,10 +465,11 @@ class ExperimentExplorerWidget(QWidget):
         # ヘッダー列定義:
         # Col 0: モード (最左列)
         # Col 1: Shield (可否)
-        # Col 2: フォルダ名 (基本列・キー)
-        # Col 3: タイムスタンプ (デフォルト非表示)
-        # Col 4以降: config_keys
-        headers = ["モード", "Shield", "フォルダ名", "タイムスタンプ"] + self._config_keys
+        # Col 2: 学習種別 (単一/継続)
+        # Col 3: フォルダ名 (基本列・キー)
+        # Col 4: タイムスタンプ (デフォルト非表示)
+        # Col 5以降: config_keys
+        headers = ["モード", "Shield", "学習種別", "フォルダ名", "タイムスタンプ"] + self._config_keys
         self._raw_column_names = headers[:]
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
@@ -494,23 +498,34 @@ class ExperimentExplorerWidget(QWidget):
                 item_shield.setForeground(QColor("#757575"))  # グレー
             self.table.setItem(row_idx, 1, item_shield)
 
-            # Col 2: フォルダ名 (キー)
-            item_folder = SortableTableWidgetItem(record.folder_name, record.folder_name)
-            self.table.setItem(row_idx, 2, item_folder)
+            # Col 2: 学習種別 (単一 / 継続)
+            sort_cl = 1 if record.is_continual else 0
+            item_cl = SortableTableWidgetItem(record.display_cl, sort_cl)
+            item_cl.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if record.is_continual:
+                item_cl.setForeground(QColor("#1565c0"))  # 明瞭なブルー
+                font_cl = item_cl.font()
+                font_cl.setBold(True)
+                item_cl.setFont(font_cl)
+            self.table.setItem(row_idx, 2, item_cl)
 
-            # Col 3: タイムスタンプ (デフォルト非表示)
+            # Col 3: フォルダ名 (キー)
+            item_folder = SortableTableWidgetItem(record.folder_name, record.folder_name)
+            self.table.setItem(row_idx, 3, item_folder)
+
+            # Col 4: タイムスタンプ (デフォルト非表示)
             item_time = SortableTableWidgetItem(record.display_timestamp, record.timestamp_key)
             item_time.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.table.setItem(row_idx, 3, item_time)
+            self.table.setItem(row_idx, 4, item_time)
 
-            # Col 4以降: 各Configパラメータ
+            # Col 5以降: 各Configパラメータ
             for col_offset, key in enumerate(self._config_keys):
                 val = record.config_flat.get(key, "")
                 val_str = str(val) if val is not None else ""
                 item_val = SortableTableWidgetItem(val_str, val)
                 if isinstance(val, (int, float)):
                     item_val.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                self.table.setItem(row_idx, 4 + col_offset, item_val)
+                self.table.setItem(row_idx, 5 + col_offset, item_val)
 
         self.table.setSortingEnabled(True)
 
@@ -520,6 +535,7 @@ class ExperimentExplorerWidget(QWidget):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
 
         # 1行目を選択
         if self._records:
@@ -768,8 +784,9 @@ class ExperimentExplorerWidget(QWidget):
 
         # プレビューヘッダー更新
         shield_info = f" (Shield: {record.display_shield})" if record.display_shield != "-" else ""
+        cl_info = f" [{record.display_cl}]" if record.display_cl != "-" else ""
         self.lbl_preview_header.setText(
-            f"選択中: [{record.mode}]{shield_info} {record.folder_name}  ({record.display_timestamp})"
+            f"選択中: [{record.mode}]{cl_info}{shield_info} {record.folder_name}  ({record.display_timestamp})"
         )
 
         # 1. 画像がない場合
@@ -777,8 +794,8 @@ class ExperimentExplorerWidget(QWidget):
             self._show_empty_preview_tab("この実験ログには画像ファイル (.png) がありません")
             return
 
-        # 2. 画像が存在する場合: アルファベット順にプレフィックスをソート
-        sorted_prefixes = sorted(list(record.images.keys()))
+        # 2. 画像が存在する場合: 自然な順序でプレフィックスをソート
+        sorted_prefixes = sorted(list(record.images.keys()), key=_get_prefix_sort_key)
 
         self.preview_tabs.blockSignals(True)
 
@@ -795,11 +812,11 @@ class ExperimentExplorerWidget(QWidget):
             self._current_tab_keys = sorted_prefixes
 
             for prefix in sorted_prefixes:
-                lbl = ImagePreviewLabel(f"{prefix}\n画像が読み込めません")
+                display_title = get_image_display_title(prefix)
+                lbl = ImagePreviewLabel(f"{display_title}\n画像が読み込めません")
                 lbl.set_image(record.images.get(prefix))
                 self._tab_preview_labels[prefix] = lbl
-                # タブ名はプレフィックス文字列そのまま（案1）
-                self.preview_tabs.addTab(lbl, prefix)
+                self.preview_tabs.addTab(lbl, display_title)
 
         # 4. タブ選択の維持（プレフィックス名キー方式）
         target_idx = -1
