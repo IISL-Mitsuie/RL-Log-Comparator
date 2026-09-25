@@ -6,6 +6,7 @@ Windows環境のパス表記などでダブルクォート内にエスケープ�
 
 import os
 import re
+import json
 from typing import Any, Optional
 import yaml
 
@@ -26,13 +27,24 @@ def sanitize_yaml_text(content: str) -> str:
 
 def safe_load_yaml(file_path: str) -> dict[str, Any]:
     """
-    YAMLファイルを安全に読み込み、辞書として返す。
+    YAML または JSON ファイルを安全に読み込み、辞書として返す。
     読み込み失敗時や非辞書の場合は空辞書を返す。
     """
     if not file_path or not os.path.exists(file_path):
         return {}
 
-    # 1. 通常の yaml.safe_load を試みる
+    # 0. JSON ファイルの場合は標準の json.load を試行
+    if file_path.lower().endswith(".json"):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+                return {}
+        except Exception:
+            pass
+
+    # 1. 通常の yaml.safe_load を試みる (YAMLはJSONの上位互換)
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)

@@ -133,15 +133,29 @@ def select_latest_image(img_paths: list[str]) -> str:
     return sorted_paths[0]
 
 
+# サポートする画像拡張子
+SUPPORTED_IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.webp')
+
+
 def get_folder_image_list(folder_path: str) -> list[tuple[str, str, str]]:
     """
-    指定フォルダ配下のPNG画像を走査し、
+    指定フォルダ配下の画像を走査（PNG, JPG, BMP, WebP等）し、
     [(プレフィックス, 表示名, 最新ファイルパス), ...] のリストをソート順で返す。
     """
     if not folder_path or not os.path.isdir(folder_path):
         return []
 
-    imgs = glob.glob(os.path.join(folder_path, "*.png"))
+    imgs = []
+    try:
+        for entry in os.listdir(folder_path):
+            full_path = os.path.join(folder_path, entry)
+            if os.path.isfile(full_path):
+                ext = os.path.splitext(entry)[1].lower()
+                if ext in SUPPORTED_IMAGE_EXTENSIONS:
+                    imgs.append(full_path)
+    except OSError:
+        pass
+
     prefix_to_paths: dict[str, list[str]] = {}
     for p in imgs:
         prefix = extract_prefix(p)

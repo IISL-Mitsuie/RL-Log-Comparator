@@ -86,15 +86,32 @@ def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
     folder_name = os.path.basename(abs_path)
     parent_name = os.path.basename(os.path.dirname(abs_path))
 
-    # 1. タイムスタンプの抽出
+    # 1. タイムスタンプの抽出 (マッチしない場合はフォルダ最終更新日時をフォールバック)
     match = re.search(r'(\d{8}_\d{6})', folder_name)
-    timestamp_key = match.group(1) if match else folder_name
-    display_timestamp = format_timestamp(timestamp_key)
+    if match:
+        timestamp_key = match.group(1)
+        display_timestamp = format_timestamp(timestamp_key)
+    else:
+        timestamp_key = folder_name
+        try:
+            from datetime import datetime
+            mtime = os.path.getmtime(abs_path)
+            display_timestamp = datetime.fromtimestamp(mtime).strftime("%Y/%m/%d %H:%M:%S")
+        except Exception:
+            display_timestamp = folder_name
 
-    # 2. YAML ファイルの走査とパース
+    # 2. 設定ファイル (YAML / JSON) の走査とパース
     yaml_files = sorted(glob.glob(os.path.join(abs_path, "config_used_*.yaml")), reverse=True)
     if not yaml_files:
         yaml_files = sorted(glob.glob(os.path.join(abs_path, "*.yaml")), reverse=True)
+    if not yaml_files:
+        yaml_files = sorted(glob.glob(os.path.join(abs_path, "*.yml")), reverse=True)
+    if not yaml_files:
+        yaml_files = sorted(glob.glob(os.path.join(abs_path, "config*.json")), reverse=True)
+    if not yaml_files:
+        yaml_files = sorted(glob.glob(os.path.join(abs_path, "params*.json")), reverse=True)
+    if not yaml_files:
+        yaml_files = sorted(glob.glob(os.path.join(abs_path, "*.json")), reverse=True)
 
     config_data: dict[str, Any] = {}
     if yaml_files:
@@ -165,11 +182,19 @@ def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
 
     config_flat = flatten_dict(config_data)
 
-    # 3. 画像ファイルの検出（プレフィックスごとにグループ化し、最新1枚を選定）
+    # 3. 画像ファイルの検出（多形式対応、プレフィックスごとにグループ化し、最新1枚を選定）
+    from src.core.parsers.image_pair import SUPPORTED_IMAGE_EXTENSIONS
     prefix_to_paths: dict[str, list[str]] = {}
-    for img_path in glob.glob(os.path.join(abs_path, "*.png")):
-        prefix = extract_prefix(img_path)
-        prefix_to_paths.setdefault(prefix, []).append(img_path)
+    try:
+        for entry in os.listdir(abs_path):
+            p = os.path.join(abs_path, entry)
+            if os.path.isfile(p):
+                ext = os.path.splitext(entry)[1].lower()
+                if ext in SUPPORTED_IMAGE_EXTENSIONS:
+                    prefix = extract_prefix(p)
+                    prefix_to_paths.setdefault(prefix, []).append(p)
+    except OSError:
+        pass
 
     images: dict[str, str] = {}
     for prefix, paths in prefix_to_paths.items():

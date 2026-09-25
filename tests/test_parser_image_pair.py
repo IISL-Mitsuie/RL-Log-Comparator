@@ -98,6 +98,25 @@ class TestParserImagePair(unittest.TestCase):
         self.assertEqual(detect_image_pairs("", ""), [])
         self.assertEqual(detect_image_pairs("non_existent", "non_existent"), [])
 
+    def test_detect_multi_format_images(self):
+        """PNG 以外の形式 (.jpg, .jpeg, .webp, .bmp) の画像検出テスト"""
+        folder_multi = os.path.join(self.test_dir, "folder_multi")
+        os.makedirs(folder_multi, exist_ok=True)
+        with open(os.path.join(folder_multi, "learning_curve.jpg"), "w") as f:
+            f.write("jpg")
+        with open(os.path.join(folder_multi, "trajectory.WEBP"), "w") as f:
+            f.write("webp")
+        with open(os.path.join(folder_multi, "eval_plot.jpeg"), "w") as f:
+            f.write("jpeg")
+
+        from src.core.parsers.image_pair import get_folder_image_list
+        img_list = get_folder_image_list(folder_multi)
+        prefixes = [item[0] for item in img_list]
+
+        self.assertIn("learning_curve", prefixes)
+        self.assertIn("trajectory", prefixes)
+        self.assertIn("eval_plot", prefixes)
+
 
 if __name__ == "__main__":
     unittest.main()

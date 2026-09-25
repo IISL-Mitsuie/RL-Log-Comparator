@@ -40,6 +40,22 @@ continual_learning:
     def test_safe_load_yaml_nonexistent(self):
         self.assertEqual(safe_load_yaml("nonexistent_file_xyz.yaml"), {})
 
+    def test_safe_load_json(self):
+        json_content = '{"learning_rate": 0.001, "batch_size": 64, "algorithm": "PPO"}'
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".json", delete=False) as f:
+            f.write(json_content)
+            tmp_path = f.name
+
+        try:
+            data = safe_load_yaml(tmp_path)
+            self.assertEqual(data["learning_rate"], 0.001)
+            self.assertEqual(data["batch_size"], 64)
+            self.assertEqual(data["algorithm"], "PPO")
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
 
 if __name__ == '__main__':
     unittest.main()
+
