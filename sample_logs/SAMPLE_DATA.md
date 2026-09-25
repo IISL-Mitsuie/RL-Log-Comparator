@@ -19,7 +19,7 @@ sample_logs/
 │       ├── params.json              <-- JSON形式の設定ファイル
 │       └── eval_curve.png           <-- 学習曲線画像
 │
-├── 2_recommended_standard_rl/       <-- 推奨構成: 通常の強化学習（単一ゴール学習）
+├── 2_standard_rl/                   <-- 推奨構成: 通常の強化学習（単一ゴール学習）
 │   ├── output_20260901_100000/      <-- 実験A: Q-Learning ベースライン
 │   │   ├── config_used_20260901_100000.yaml
 │   │   ├── learning_log_20260901_100000.csv (8列形式)
@@ -33,7 +33,7 @@ sample_logs/
 │       ├── learning_steps_20260901_120000.png
 │       └── trajectory_20260901_120000.png
 │
-├── 3_recommended_sap_net/           <-- 推奨構成: SAP-net（単一ゴール＋安全性学習）
+├── 3_sap_net/                       <-- 推奨構成: SAP-net（単一ゴール＋安全性学習）
 │   ├── output_20260905_140000/      <-- 実験A: 安全重み λ = 0.5
 │   │   ├── config_used_20260905_140000.yaml
 │   │   ├── learning_log_20260905_140000.csv (8列形式: UnsafeActions/SAP_Plan含む)
@@ -47,7 +47,7 @@ sample_logs/
 │       ├── learning_steps_20260905_160000.png
 │       └── trajectory_20260905_160000.png
 │
-└── 4_recommended_continual_learning/ <-- 推奨構成: 継続学習（S-SAP Continual Learning）
+└── 4_continual_learning/            <-- 推奨構成: 継続学習（S-SAP Continual Learning）
     ├── output_20260920_100000/      <-- 実験A: 3タスク継続学習 ベースライン
     │   ├── config_used_20260920_100000.yaml
     │   ├── learning_log_20260920_100000.csv (14列形式)
@@ -79,7 +79,7 @@ OpenAI Gym / Gymnasium、Stable-Baselines3、CleanRL などで出力される一
   - **設定差分**: JSONファイル同士の階層差分（`algorithm`, `learning_rate` 等）が表示されます。
   - **画像比較**: 「左右自由選択モード」で `eval_curve.png` を並列目視比較できます。
 
-### 2. 推奨構成: 通常の強化学習 (`2_recommended_standard_rl`)
+### 2. 推奨構成: 通常の強化学習 (`2_standard_rl`)
 本研究室のロボット強化学習シミュレータにおける単一ゴール学習の標準出力構成です。
 - **特徴**:
   - 8列CSVフォーマット（`Episode`, `Steps`, `TotalReward`, `Result`, `Final_X`, `Final_Y`, `UnsafeActions`, `SAP_Plan`）。
@@ -89,7 +89,7 @@ OpenAI Gym / Gymnasium、Stable-Baselines3、CleanRL などで出力される一
   - **主要指標**: 報酬推移、ステップ数、成功率（Goal判定）が自動計算されて滑らかに比較できます。
   - **画像同期**: タイムスタンプが異なっても左右の画像が自動ペアリングされます。
 
-### 3. 推奨構成: SAP-net (`3_recommended_sap_net`)
+### 3. 推奨構成: SAP-net (`3_sap_net`)
 安全性評価・衝突回避制御を組み込んだ SAP-net アルゴリズムの出力構成です。
 - **特徴**:
   - CSV内に不安全行動カウント `UnsafeActions` および介入プラン `SAP_Plan` を記録。
@@ -98,7 +98,7 @@ OpenAI Gym / Gymnasium、Stable-Baselines3、CleanRL などで出力される一
   - 安全性の向上に伴い `UnsafeActions` が0に収束していく過程をグラフで比較できます。
   - ハイパーパラメータ差分タブで安全重み λ の違いを一目で比較できます。
 
-### 4. 推奨構成: 継続学習 (`4_recommended_continual_learning`)
+### 4. 推奨構成: 継続学習 (`4_continual_learning`)
 環境やゴールが変化するマルチタスク継続学習（S-SAP Continual Learning）の出力構成です。
 - **特徴**:
   - 14列CSVフォーマット（`Task_ID`, `Task_Episode`, `Total_Episode`, `Is_Converged`, `Acquired_Policies` 等）。

@@ -6,7 +6,7 @@
 
 > [!TIP]
 > **実動サンプルデータについて**:  
-> リポジトリ内の [`sample_logs/`](./sample_logs/) フォルダに、最小構成および推奨構成（通常RL、SAP-net、継続学習）のサンプル実験ログがすべて同梱されています。本アプリを起動し、フォルダA/Bとして選択することで各機能の動作を即座に確認できます。詳細は [`sample_logs/README.md`](./sample_logs/README.md) をご覧ください。
+> リポジトリ内の [`sample_logs/`](./sample_logs/) フォルダに、最小構成および推奨構成（通常RL、SAP-net、継続学習）のサンプル実験ログがすべて同梱されています。本アプリを起動し、フォルダA/Bとして選択することで各機能の動作を即座に確認できます。詳細は [`sample_logs/SAMPLE_DATA.md`](./sample_logs/SAMPLE_DATA.md) をご覧ください。
 
 ---
 
