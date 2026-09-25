@@ -255,6 +255,20 @@ def scan_experiments_directory(
                 if d.startswith("output_") or re.search(r'\d{8}_\d{6}', d):
                     candidate_folders.append(full_path)
                     dirs_to_remove.append(d)
+                else:
+                    # 任意フォルダ名対応: 直下に CSV または設定ファイルが存在する場合は実験フォルダと判定
+                    try:
+                        files = os.listdir(full_path)
+                        has_csv = any(f.lower().endswith(".csv") for f in files)
+                        has_cfg = any(f.lower().endswith((".yaml", ".yml", ".json")) for f in files)
+                        if has_csv and has_cfg:
+                            candidate_folders.append(full_path)
+                            dirs_to_remove.append(d)
+                        elif has_csv:
+                            candidate_folders.append(full_path)
+                            dirs_to_remove.append(d)
+                    except OSError:
+                        pass
             for d in dirs_to_remove:
                 dirs.remove(d)
     else:

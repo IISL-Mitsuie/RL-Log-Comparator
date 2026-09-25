@@ -1,0 +1,11 @@
+experiment_name: Standard_RL_Q_Learning_Tuned
+algorithm: Q-Learning
+learning:
+  alpha: 0.05
+  gamma: 0.99
+  epsilon_initial: 1.0
+  epsilon_decay: 0.95
+  epsilon_min: 0.01
+target_goal:
+  x: 11.0
+  y: 3.0

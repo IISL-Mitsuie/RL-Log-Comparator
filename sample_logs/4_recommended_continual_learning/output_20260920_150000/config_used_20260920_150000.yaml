@@ -1,0 +1,20 @@
+experiment_name: S_SAP_Continual_Learning_Fast_Adapt
+algorithm: S-SAP
+continual_learning:
+  mode: sequential_tasks
+  knowledge_transfer: true
+  fast_transfer_boost: true
+  policy_library_path: ./acquired_policies_20260920_150000
+tasks:
+- task_id: 1
+  goal:
+  - 11.0
+  - 3.0
+- task_id: 2
+  goal:
+  - 15.0
+  - 5.0
+- task_id: 3
+  goal:
+  - 8.0
+  - 6.0

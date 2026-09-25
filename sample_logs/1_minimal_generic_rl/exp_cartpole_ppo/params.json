@@ -1,0 +1,11 @@
+{
+  "algorithm": "PPO",
+  "environment": "CartPole-v1",
+  "hyperparameters": {
+    "learning_rate": 0.0003,
+    "gamma": 0.99,
+    "clip_range": 0.2,
+    "n_steps": 2048,
+    "entropy_coef": 0.01
+  }
+}
