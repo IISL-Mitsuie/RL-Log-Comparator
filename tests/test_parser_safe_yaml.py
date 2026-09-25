@@ -55,6 +55,24 @@ continual_learning:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
+    def test_find_config_file(self):
+        from src.core.parsers.safe_yaml import find_config_file
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            # 何もない場合
+            self.assertIsNone(find_config_file(tmp_dir))
+
+            # params.json を作成
+            p_json = os.path.join(tmp_dir, "params.json")
+            with open(p_json, "w") as f:
+                f.write("{}")
+            self.assertEqual(find_config_file(tmp_dir), p_json)
+
+            # より優先度の高い config_used_123.yaml を作成
+            c_yaml = os.path.join(tmp_dir, "config_used_123.yaml")
+            with open(c_yaml, "w") as f:
+                f.write("{}")
+            self.assertEqual(find_config_file(tmp_dir), c_yaml)
+
 
 if __name__ == '__main__':
     unittest.main()

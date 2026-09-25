@@ -201,10 +201,11 @@ def get_available_metrics(
     return items
 
 
-def read_log_csv(folder_path: str) -> Optional[pd.DataFrame]:
+def find_log_csv(folder_path: str) -> Optional[str]:
     """
-    フォルダ内の learning_log_*.csv (または *.csv) を安全に読み込んで DataFrame を返す。
-    _task_ を含まない全タスク統合CSVを最優先でロードする。
+    指定フォルダ配下から学習ログ CSV を探索して最優先のファイルパスを返す。
+    _task_ を含まない全タスク統合CSV (learning_log_*.csv) を最優先し、
+    次に learning_log_*.csv、無ければ任意の *.csv を探索。
     """
     if not folder_path or not os.path.isdir(folder_path):
         return None
@@ -212,16 +213,23 @@ def read_log_csv(folder_path: str) -> Optional[pd.DataFrame]:
     csv_candidates = sorted(glob.glob(os.path.join(folder_path, "learning_log_*.csv")))
     main_csvs = [p for p in csv_candidates if "_task_" not in os.path.basename(p)]
 
-    target_csv = None
     if main_csvs:
-        target_csv = main_csvs[0]
-    elif csv_candidates:
-        target_csv = csv_candidates[0]
-    else:
-        other_csvs = sorted(glob.glob(os.path.join(folder_path, "*.csv")))
-        if other_csvs:
-            target_csv = other_csvs[0]
+        return main_csvs[0]
+    if csv_candidates:
+        return csv_candidates[0]
 
+    other_csvs = sorted(glob.glob(os.path.join(folder_path, "*.csv")))
+    if other_csvs:
+        return other_csvs[0]
+    return None
+
+
+def read_log_csv(folder_path: str) -> Optional[pd.DataFrame]:
+    """
+    フォルダ内の learning_log_*.csv (または *.csv) を安全に読み込んで DataFrame を返す。
+    _task_ を含まない全タスク統合CSVを最優先でロードする。
+    """
+    target_csv = find_log_csv(folder_path)
     if not target_csv:
         return None
 

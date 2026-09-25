@@ -169,6 +169,15 @@ def get_folder_image_list(folder_path: str) -> list[tuple[str, str, str]]:
     return results
 
 
+def get_folder_images_dict(folder_path: str) -> dict[str, str]:
+    """
+    指定フォルダ配下の画像を走査し、プレフィックスをキー、最新画像パスを値とする辞書を返す。
+    例: {"learning_rewards": "/path/to/learning_rewards_20260901_100000.png", ...}
+    """
+    image_list = get_folder_image_list(folder_path)
+    return {prefix: file_path for prefix, _, file_path in image_list}
+
+
 def detect_image_pairs(folder_a: str, folder_b: str) -> list[ImagePairItem]:
     """
     フォルダAおよびフォルダB内の PNG 画像を走査し、

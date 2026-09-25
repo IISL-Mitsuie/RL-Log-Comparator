@@ -181,6 +181,30 @@ class TestParserCsvMetric(unittest.TestCase):
         self.assertTrue(res_rew.has_data)
         self.assertEqual(list(res_rew.y_raw), [1.5, 3.0, 4.5])
 
+    def test_find_log_csv(self):
+        from src.core.parsers.csv_metric import find_log_csv
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            self.assertIsNone(find_log_csv(tmp_dir))
+
+            # 汎用 progress.csv
+            prog_csv = os.path.join(tmp_dir, "progress.csv")
+            with open(prog_csv, "w") as f:
+                f.write("a,b\n1,2")
+            self.assertEqual(find_log_csv(tmp_dir), prog_csv)
+
+            # タスク別 learning_log_123_task_1.csv
+            task_csv = os.path.join(tmp_dir, "learning_log_123_task_1.csv")
+            with open(task_csv, "w") as f:
+                f.write("a,b\n1,2")
+            self.assertEqual(find_log_csv(tmp_dir), task_csv)
+
+            # 全タスク統合 learning_log_123.csv
+            main_csv = os.path.join(tmp_dir, "learning_log_123.csv")
+            with open(main_csv, "w") as f:
+                f.write("a,b\n1,2")
+            self.assertEqual(find_log_csv(tmp_dir), main_csv)
+
 
 if __name__ == "__main__":
     unittest.main()

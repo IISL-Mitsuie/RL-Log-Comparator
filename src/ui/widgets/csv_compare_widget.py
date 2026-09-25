@@ -111,10 +111,10 @@ class CsvCompareWidget(QWidget):
     def _on_task_changed(self, index: int) -> None:
         """タスク選択変更時のUI制御"""
         task_id = self.combo_task.currentData()
-        # 特定タスク選択時はタスク境界線・収束マーカーオプションを無効化
+        has_multiple_tasks = self.combo_task.count() > 1
         is_all_tasks = (task_id == 0 or task_id is None)
-        self.cb_task_boundaries.setEnabled(is_all_tasks)
-        self.cb_converged_points.setEnabled(is_all_tasks)
+        self.cb_task_boundaries.setEnabled(has_multiple_tasks and is_all_tasks)
+        self.cb_converged_points.setEnabled(has_multiple_tasks and is_all_tasks)
         self.update_chart()
 
     def load_csvs(self, folder_a: str, folder_b: str) -> None:
@@ -190,6 +190,11 @@ class CsvCompareWidget(QWidget):
         # task_id 昇順で追加
         for t_id in sorted(merged_tasks.keys()):
             self.combo_task.addItem(merged_tasks[t_id], t_id)
+
+        has_multiple_tasks = len(merged_tasks) > 1
+        self.combo_task.setEnabled(has_multiple_tasks)
+        if not has_multiple_tasks and self.combo_task.count() > 0:
+            self.combo_task.setItemText(0, "単一タスク / 汎用ログ (全エピソード)")
 
         self.combo_task.blockSignals(False)
         self._on_task_changed(self.combo_task.currentIndex())

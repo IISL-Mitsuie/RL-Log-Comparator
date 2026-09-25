@@ -5,10 +5,35 @@ Windows環境のパス表記などでダブルクォート内にエスケープ�
 """
 
 import os
+import glob
 import re
 import json
 from typing import Any, Optional
 import yaml
+
+
+def find_config_file(folder_path: str) -> Optional[str]:
+    """
+    指定フォルダ配下から設定ファイル (YAML / JSON) を探索して最優先のファイルパスを返す。
+    優先順: config_used_*.yaml -> *.yaml -> *.yml -> config*.json -> params*.json -> *.json
+    見つからない場合は None を返す。
+    """
+    if not folder_path or not os.path.isdir(folder_path):
+        return None
+
+    patterns = [
+        "config_used_*.yaml",
+        "*.yaml",
+        "*.yml",
+        "config*.json",
+        "params*.json",
+        "*.json"
+    ]
+    for pattern in patterns:
+        matched = sorted(glob.glob(os.path.join(folder_path, pattern)), reverse=True)
+        if matched:
+            return matched[0]
+    return None
 
 
 def sanitize_yaml_text(content: str) -> str:

@@ -117,6 +117,22 @@ class TestParserImagePair(unittest.TestCase):
         self.assertIn("trajectory", prefixes)
         self.assertIn("eval_plot", prefixes)
 
+    def test_get_folder_images_dict(self):
+        """get_folder_images_dict の動作テスト"""
+        folder_dict_test = os.path.join(self.test_dir, "folder_dict_test")
+        os.makedirs(folder_dict_test, exist_ok=True)
+        img1 = os.path.join(folder_dict_test, "learning_rewards_20260901_100000.png")
+        img2 = os.path.join(folder_dict_test, "trajectory_20260901_100000.jpg")
+        with open(img1, "w") as f: f.write("img1")
+        with open(img2, "w") as f: f.write("img2")
+
+        from src.core.parsers.image_pair import get_folder_images_dict
+        d = get_folder_images_dict(folder_dict_test)
+        self.assertIn("learning_rewards", d)
+        self.assertEqual(d["learning_rewards"], img1)
+        self.assertIn("trajectory", d)
+        self.assertEqual(d["trajectory"], img2)
+
 
 if __name__ == "__main__":
     unittest.main()
