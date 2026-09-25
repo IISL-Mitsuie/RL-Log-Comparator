@@ -1,5 +1,5 @@
 #define MyAppName "RL-Log-Comparator"
-#define MyAppVersion "1.2.0"
+#define MyAppVersion "1.3.0"
 #define MyAppPublisher "IISL Mitsuie Lab"
 
 #define MyAppExeName "RL-Log-Comparator.exe"
