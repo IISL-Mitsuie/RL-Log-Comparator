@@ -33,8 +33,12 @@ class TestUiCsvCompareWidget(unittest.TestCase):
         widget = CsvCompareWidget()
         widget.load_csvs(self.folder_a, self.folder_b)
 
-        # 指標数（4つ）の確認
-        self.assertEqual(widget.list_metrics.count(), 4)
+        # 指標数の確認
+        from src.core.parsers.csv_metric import METRIC_DEFINITIONS
+        self.assertEqual(widget.list_metrics.count(), len(METRIC_DEFINITIONS))
+
+        # タスクコンボボックスの確認
+        self.assertGreaterEqual(widget.combo_task.count(), 1)
 
         # 各指標を切り替えて例外なく再描画されることを確認
         for i in range(widget.list_metrics.count()):

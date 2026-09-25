@@ -10,6 +10,7 @@ from typing import Any, Optional
 import yaml
 
 from src.core.parsers.image_pair import extract_prefix, select_latest_image
+from src.core.parsers.safe_yaml import safe_load_yaml
 
 # 後方互換・エイリアス
 _select_latest_image = select_latest_image
@@ -17,7 +18,14 @@ _select_latest_image = select_latest_image
 
 # 重要度の高いキー（カラム一覧で優先表示）
 PRIORITY_CONFIG_KEYS = [
-    "mode", "algorithm", "seed", "learning_rate", "lr", "gamma",
+    "mode", "algorithm",
+    "continual_learning.max_episodes_per_task",
+    "continual_learning.goal_list",
+    "continual_learning.unregistered_goal_list",
+    "continual_learning.convergence.window_size",
+    "single_task.max_episodes",
+    "single_task.goal_position",
+    "seed", "learning_rate", "lr", "gamma",
     "batch_size", "max_episodes", "episodes", "hidden_dim"
 ]
 
@@ -32,6 +40,8 @@ class ExperimentLogRecord:
     mode: str
     use_shield: Optional[bool] = None
     display_shield: str = "-"
+    is_continual: bool = False
+    display_cl: str = "-"
     config_flat: dict[str, Any] = field(default_factory=dict)
     images: dict[str, str] = field(default_factory=dict)
     csv_path: Optional[str] = None
@@ -88,13 +98,7 @@ def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
 
     config_data: dict[str, Any] = {}
     if yaml_files:
-        try:
-            with open(yaml_files[0], 'r', encoding='utf-8') as f:
-                loaded = yaml.safe_load(f)
-                if isinstance(loaded, dict):
-                    config_data = loaded
-        except Exception:
-            config_data = {}
+        config_data = safe_load_yaml(yaml_files[0])
 
     # モードおよび Shield の特定
     mode = parent_name
@@ -126,6 +130,39 @@ def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
 
     display_shield = "有効" if use_shield is True else ("無効" if use_shield is False else "-")
 
+    # 継続学習の判定 & 表示文字列
+    is_continual = False
+    cl_section = config_data.get('continual_learning')
+    if isinstance(raw_mode, dict) and raw_mode.get('continual_learning') is True:
+        is_continual = True
+    elif isinstance(cl_section, dict):
+        if cl_section.get('enabled') is True or 'goal_list' in cl_section:
+            is_continual = True
+
+    display_cl = "-"
+    if is_continual:
+        goal_list = cl_section.get('goal_list', []) if isinstance(cl_section, dict) else []
+        unreg_list = cl_section.get('unregistered_goal_list', []) if isinstance(cl_section, dict) else []
+        n_reg = len(goal_list) if isinstance(goal_list, list) else 0
+        n_unreg = len(unreg_list) if isinstance(unreg_list, list) else 0
+        if n_unreg > 0:
+            display_cl = f"継続 ({n_reg}+{n_unreg}タスク)"
+        elif n_reg > 0:
+            display_cl = f"継続 ({n_reg}タスク)"
+        else:
+            display_cl = "継続"
+    else:
+        single_section = config_data.get('single_task')
+        max_ep = single_section.get('max_episodes') if isinstance(single_section, dict) else None
+        if max_ep:
+            display_cl = f"単一 ({max_ep}ep)"
+        elif single_section is not None:
+            display_cl = "単一"
+        elif isinstance(raw_mode, dict) and raw_mode.get('continual_learning') is False:
+            display_cl = "単一"
+        elif 'max_episodes' in config_data:
+            display_cl = f"単一 ({config_data['max_episodes']}ep)"
+
     config_flat = flatten_dict(config_data)
 
     # 3. 画像ファイルの検出（プレフィックスごとにグループ化し、最新1枚を選定）
@@ -138,15 +175,20 @@ def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
     for prefix, paths in prefix_to_paths.items():
         images[prefix] = _select_latest_image(paths)
 
-    # 4. CSV ファイルの検出
-    csv_files = glob.glob(os.path.join(abs_path, "learning_log_*.csv"))
-    if not csv_files:
-        csv_files = glob.glob(os.path.join(abs_path, "*.csv"))
-    csv_path = csv_files[0] if csv_files else None
+    # 4. CSV ファイルの検出（全タスク統合ログを最優先）
+    csv_candidates = sorted(glob.glob(os.path.join(abs_path, "learning_log_*.csv")))
+    main_csvs = [p for p in csv_candidates if "_task_" not in os.path.basename(p)]
+    if main_csvs:
+        csv_path = main_csvs[0]
+    elif csv_candidates:
+        csv_path = csv_candidates[0]
+    else:
+        other_csvs = sorted(glob.glob(os.path.join(abs_path, "*.csv")))
+        csv_path = other_csvs[0] if other_csvs else None
 
     # 実験フォルダ判定条件:
     # フォルダ名にタイムスタンプがある、またはYAML/CSV/画像が存在する
-    if not match and not yaml_files and not csv_files and not images:
+    if not match and not yaml_files and not csv_path and not images:
         return None
 
     return ExperimentLogRecord(
@@ -157,6 +199,8 @@ def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
         mode=mode,
         use_shield=use_shield,
         display_shield=display_shield,
+        is_continual=is_continual,
+        display_cl=display_cl,
         config_flat=config_flat,
         images=images,
         csv_path=csv_path
@@ -180,12 +224,9 @@ def scan_experiments_directory(
 
     if recursive:
         for root, dirs, _ in os.walk(root_dir):
-            # 実験出力フォルダ（output_* やタイムスタンプ付きフォルダ）を検出
-            # 自身が実験フォルダと判定された場合は、その配下の dirs を走査対象から除外
             dirs_to_remove = []
             for d in dirs:
                 full_path = os.path.join(root, d)
-                # output_ で始まるかタイムスタンプを持つフォルダを候補とする
                 if d.startswith("output_") or re.search(r'\d{8}_\d{6}', d):
                     candidate_folders.append(full_path)
                     dirs_to_remove.append(d)
@@ -197,7 +238,6 @@ def scan_experiments_directory(
             if os.path.isdir(full_path):
                 candidate_folders.append(full_path)
 
-    # フォルダごとにレコード生成
     records: list[ExperimentLogRecord] = []
     seen_paths: set[str] = set()
     all_keys_set: set[str] = set()
@@ -205,6 +245,7 @@ def scan_experiments_directory(
     EXCLUDED_CONFIG_KEYS = {
         "mode", "algorithm",
         "mode.name", "mode.use_shield", "mode.algorithm", "mode.shield",
+        "mode.continual_learning",
         "use_shield", "shield"
     }
 

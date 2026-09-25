@@ -72,6 +72,60 @@ class TestParserCsvMetric(unittest.TestCase):
         res2 = compute_metric_series(pd.DataFrame(), 0, 5, "A")
         self.assertFalse(res2.has_data)
 
+    def test_continual_learning_task_boundaries_and_filtering(self):
+        """継続学習のタスク境界抽出とタスク絞り込みの検証"""
+        df = pd.DataFrame({
+            "Task_ID": [1, 1, 2, 2, 2],
+            "Task_Episode": [1, 2, 1, 2, 3],
+            "Total_Episode": [1, 2, 3, 4, 5],
+            "TotalReward": [10.0, 20.0, 5.0, 15.0, 25.0],
+            "Is_Converged": [False, True, False, False, True]
+        })
+        # 全タスク統合時
+        res_all = compute_metric_series(df, metric_idx=0, window=1, label_prefix="TestCL", task_filter_id=0)
+        self.assertTrue(res_all.has_data)
+        self.assertEqual(len(res_all.x), 5)
+        # タスク境界 (Task 2 開始地点)
+        self.assertEqual(len(res_all.task_boundaries), 1)
+        self.assertEqual(res_all.task_boundaries[0], (3, "Task 2"))
+        # 収束ポイント (ep 2 と ep 5)
+        self.assertEqual(res_all.converged_episodes, [2, 5])
+
+        # Task 2 絞り込み時 (案A: タスク内エピソード基準)
+        res_t2 = compute_metric_series(df, metric_idx=0, window=1, label_prefix="TestCL", task_filter_id=2)
+        self.assertTrue(res_t2.has_data)
+        self.assertEqual(list(res_t2.x), [1, 2, 3])
+        self.assertEqual(list(res_t2.y_raw), [5.0, 15.0, 25.0])
+
+    def test_new_metrics_computation(self):
+        """知識獲得数、ゴール残距離、衝突率の計算検証"""
+        df = pd.DataFrame({
+            "Episode": [1, 2, 3],
+            "Acquired_Policies": [0, 1, 2],
+            "Goal_X": [10.0, 10.0, 10.0],
+            "Goal_Y": [0.0, 0.0, 0.0],
+            "Final_X": [7.0, 10.0, 6.0],
+            "Final_Y": [4.0, 0.0, 0.0],
+            "Result": ["Collision", "Goal", "Collision"]
+        })
+        # Acquired_Policies (metric_idx=4)
+        res_pol = compute_metric_series(df, metric_idx=4, window=1, label_prefix="P")
+        self.assertTrue(res_pol.has_data)
+        self.assertEqual(list(res_pol.y_raw), [0, 1, 2])
+
+        # GoalDistance (metric_idx=5): sqrt(3^2 + 4^2) = 5.0, sqrt(0) = 0.0, sqrt(4^2) = 4.0
+        res_dist = compute_metric_series(df, metric_idx=5, window=1, label_prefix="D")
+        self.assertTrue(res_dist.has_data)
+        self.assertAlmostEqual(res_dist.y_raw[0], 5.0)
+        self.assertAlmostEqual(res_dist.y_raw[1], 0.0)
+        self.assertAlmostEqual(res_dist.y_raw[2], 4.0)
+
+        # CollisionRate (metric_idx=6): 100%, 50%, 66.6%
+        res_col = compute_metric_series(df, metric_idx=6, window=2, label_prefix="C")
+        self.assertTrue(res_col.has_data)
+        self.assertEqual(res_col.y_ma[0], 100.0)
+        self.assertEqual(res_col.y_ma[1], 50.0)
+
 
 if __name__ == "__main__":
     unittest.main()

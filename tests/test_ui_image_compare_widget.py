@@ -40,10 +40,26 @@ class TestUiImageCompareWidget(unittest.TestCase):
         # 3種類の画像ペア（rewards, steps, trajectory）がリストに追加される
         self.assertEqual(widget.list_images.count(), 3)
 
-        # 行選択のシミュレーション
-        widget.list_images.setCurrentRow(0)
+        # 両方に存在する行 (rewards) を見つけて選択
+        target_row = -1
+        for row in range(widget.list_images.count()):
+            item = widget.list_images.item(row)
+            if "両方" in item.text() or "rewards" in item.text():
+                target_row = row
+                break
+
+        self.assertNotEqual(target_row, -1)
+        widget.list_images.setCurrentRow(target_row)
         self.assertFalse(widget.scene_a.itemsBoundingRect().isEmpty())
         self.assertFalse(widget.scene_b.itemsBoundingRect().isEmpty())
+
+        # 左右自由選択モードの切替テスト
+        widget.cb_manual_mode.setChecked(True)
+        self.assertFalse(widget.combo_img_a.isHidden())
+        self.assertFalse(widget.combo_img_b.isHidden())
+        widget.cb_manual_mode.setChecked(False)
+        self.assertTrue(widget.combo_img_a.isHidden())
+        self.assertTrue(widget.combo_img_b.isHidden())
 
         # リセットボタンのテスト
         widget._reset_views()
