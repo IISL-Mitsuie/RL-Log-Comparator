@@ -9,6 +9,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from src.config import SUPPORTED_IMAGE_EXTENSIONS
+
 
 @dataclass
 class ImagePairItem:
@@ -131,10 +133,6 @@ def select_latest_image(img_paths: list[str]) -> str:
 
     sorted_paths = sorted(img_paths, key=sort_key, reverse=True)
     return sorted_paths[0]
-
-
-# サポートする画像拡張子
-SUPPORTED_IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.webp')
 
 
 def get_folder_image_list(folder_path: str) -> list[tuple[str, str, str]]:

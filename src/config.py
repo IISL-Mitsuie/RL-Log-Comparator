@@ -27,4 +27,11 @@ UPDATE_CHECK_TIMEOUT_SEC = 5.0
 # Matplotlib キャッシュディレクトリ名
 MATPLOTLIB_CACHE_DIR_NAME = ".matplotlib"
 
+# サポートする画像拡張子
+SUPPORTED_IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.bmp', '.webp')
+
+# サポートする設定ファイル拡張子
+SUPPORTED_CONFIG_EXTENSIONS = ('.yaml', '.yml', '.json')
+
+
 
