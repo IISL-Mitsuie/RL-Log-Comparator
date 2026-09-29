@@ -75,6 +75,71 @@ def format_timestamp(timestamp_str: str) -> str:
     return timestamp_str
 
 
+def _parse_bool(val: Any) -> Optional[bool]:
+    """様々な型（bool, str, int）の真偽値設定を安全に判定する"""
+    if val is None:
+        return None
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return bool(val)
+    if isinstance(val, str):
+        s = val.strip().lower()
+        if s in ("true", "1", "yes", "on"):
+            return True
+        elif s in ("false", "0", "no", "off"):
+            return False
+    return None
+
+
+def _inspect_csv_for_continual(csv_path: Optional[str]) -> Optional[bool]:
+    """CSVのヘッダー行を読み取り、継続学習（Total_EpisodeやTask_ID）か単一学習（Episodeのみ等）かを判定する"""
+    if not csv_path or not os.path.isfile(csv_path):
+        return None
+    try:
+        with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
+            header_line = f.readline()
+        if not header_line:
+            return None
+        headers = [h.strip().lower() for h in header_line.split(",")]
+        if "total_episode" in headers or "task_id" in headers or "task_episode" in headers:
+            return True
+        if "episode" in headers:
+            return False
+    except Exception:
+        pass
+    return None
+
+
+def _count_tasks_from_csv(csv_path: Optional[str]) -> int:
+    """CSVからタスク数（Task_ID の一意な値の個数）を軽量にカウントする"""
+    if not csv_path or not os.path.isfile(csv_path):
+        return 0
+    try:
+        with open(csv_path, "r", encoding="utf-8", errors="ignore") as f:
+            header_line = f.readline()
+            if not header_line:
+                return 0
+            headers = [h.strip().lower() for h in header_line.split(",")]
+            task_col_idx = -1
+            for idx, h in enumerate(headers):
+                if h == "task_id":
+                    task_col_idx = idx
+                    break
+            if task_col_idx == -1:
+                return 0
+            tasks = set()
+            for line in f:
+                parts = line.split(",")
+                if len(parts) > task_col_idx:
+                    val = parts[task_col_idx].strip()
+                    if val:
+                        tasks.add(val)
+            return len(tasks)
+    except Exception:
+        return 0
+
+
 def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
     """
     単一の実験出力フォルダを解析し、ExperimentLogRecord を生成する。
@@ -101,7 +166,10 @@ def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
         except Exception:
             display_timestamp = folder_name
 
-    # 2. 設定ファイル (YAML / JSON) の走査とパース
+    # 2. CSV ファイルの先行検出（全タスク統合ログを最優先）
+    csv_path: Optional[str] = find_log_csv(abs_path)
+
+    # 3. 設定ファイル (YAML / JSON) の走査とパース
     config_file = find_config_file(abs_path)
     config_data: dict[str, Any] = safe_load_yaml(config_file) if config_file else {}
 
@@ -116,9 +184,9 @@ def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
         elif 'algorithm' in raw_mode:
             mode = str(raw_mode['algorithm'])
         if 'use_shield' in raw_mode:
-            use_shield = bool(raw_mode['use_shield'])
+            use_shield = _parse_bool(raw_mode['use_shield'])
         elif 'shield' in raw_mode:
-            use_shield = bool(raw_mode['shield'])
+            use_shield = _parse_bool(raw_mode['shield'])
     elif isinstance(raw_mode, str):
         mode = raw_mode
     elif raw_mode is not None:
@@ -129,20 +197,45 @@ def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
     # トップレベルに use_shield / shield がある場合のフォールバック
     if use_shield is None:
         if 'use_shield' in config_data:
-            use_shield = bool(config_data['use_shield'])
+            use_shield = _parse_bool(config_data['use_shield'])
         elif 'shield' in config_data:
-            use_shield = bool(config_data['shield'])
+            use_shield = _parse_bool(config_data['shield'])
 
     display_shield = "有効" if use_shield is True else ("無効" if use_shield is False else "-")
 
-    # 継続学習の判定 & 表示文字列
-    is_continual = False
+    # 4. 継続学習の判定 & 表示文字列
+    # 優先順位:
+    # 1. mode.continual_learning (True/False 明示設定を最優先)
+    # 2. トップレベル continual_learning (bool値)
+    # 3. continual_learning.enabled (bool値)
+    # 4. フォールバック: CSVヘッダー構造 -> single_taskセクションの有無
+    cl_flag: Optional[bool] = None
+
+    if isinstance(raw_mode, dict) and 'continual_learning' in raw_mode:
+        cl_flag = _parse_bool(raw_mode['continual_learning'])
+
+    if cl_flag is None and 'continual_learning' in config_data:
+        val = config_data['continual_learning']
+        if not isinstance(val, dict):
+            cl_flag = _parse_bool(val)
+
     cl_section = config_data.get('continual_learning')
-    if isinstance(raw_mode, dict) and raw_mode.get('continual_learning') is True:
-        is_continual = True
-    elif isinstance(cl_section, dict):
-        if cl_section.get('enabled') is True or 'goal_list' in cl_section:
-            is_continual = True
+    if cl_flag is None and isinstance(cl_section, dict) and 'enabled' in cl_section:
+        cl_flag = _parse_bool(cl_section['enabled'])
+
+    # 明示的なフラグがない場合のフォールバック
+    if cl_flag is None:
+        csv_is_cl = _inspect_csv_for_continual(csv_path)
+        if csv_is_cl is not None:
+            cl_flag = csv_is_cl
+        elif isinstance(cl_section, dict) and 'goal_list' in cl_section:
+            # single_task セクションがなく continual_learning セクションのみが存在する場合
+            if 'single_task' not in config_data:
+                cl_flag = True
+            else:
+                cl_flag = False
+
+    is_continual = bool(cl_flag) if cl_flag is not None else False
 
     display_cl = "-"
     if is_continual:
@@ -155,7 +248,11 @@ def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
         elif n_reg > 0:
             display_cl = f"継続 ({n_reg}タスク)"
         else:
-            display_cl = "継続"
+            n_tasks = _count_tasks_from_csv(csv_path) if csv_path else 0
+            if n_tasks > 0:
+                display_cl = f"継続 ({n_tasks}タスク)"
+            else:
+                display_cl = "継続"
     else:
         single_section = config_data.get('single_task')
         max_ep = single_section.get('max_episodes') if isinstance(single_section, dict) else None
@@ -163,18 +260,15 @@ def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
             display_cl = f"単一 ({max_ep}ep)"
         elif single_section is not None:
             display_cl = "単一"
-        elif isinstance(raw_mode, dict) and raw_mode.get('continual_learning') is False:
-            display_cl = "単一"
         elif 'max_episodes' in config_data:
             display_cl = f"単一 ({config_data['max_episodes']}ep)"
+        elif raw_mode is not None or config_file is not None or csv_path is not None:
+            display_cl = "単一"
 
     config_flat = flatten_dict(config_data)
 
-    # 3. 画像ファイルの検出（プレフィックスごとに最新1枚を選定）
+    # 5. 画像ファイルの検出（プレフィックスごとに最新1枚を選定）
     images: dict[str, str] = get_folder_images_dict(abs_path)
-
-    # 4. CSV ファイルの検出（全タスク統合ログを最優先）
-    csv_path: Optional[str] = find_log_csv(abs_path)
 
     # 実験フォルダ判定条件:
     # フォルダ名にタイムスタンプがある、または設定/CSV/画像が存在する
