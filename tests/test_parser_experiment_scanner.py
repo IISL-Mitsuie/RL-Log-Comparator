@@ -108,6 +108,112 @@ def test_parse_single_experiment_mode_dict_shield(tmp_path):
     assert record.config_flat["reward.reward_goal"] == 100.0
 
 
+def test_parse_single_experiment_continual_learning_false_with_cl_section(tmp_path):
+    """
+    continual_learning: false の場合、continual_learning セクションに goal_list が存在していても
+    単一学習モード（is_continual = False, display_cl = '単一 (300ep)'）と正しく認識されることの検証
+    """
+    import yaml
+    folder = tmp_path / "output_20260924_120000"
+    folder.mkdir()
+    yaml_path = folder / "config_used_20260924_120000.yaml"
+    with open(yaml_path, "w", encoding="utf-8") as f:
+        yaml.dump({
+            "mode": {
+                "name": "S-SAP",
+                "use_shield": False,
+                "continual_learning": False
+            },
+            "single_task": {
+                "max_episodes": 300,
+                "goal_position": [11.0, 13.0, 0.2]
+            },
+            "continual_learning": {
+                "goal_list": [
+                    [11.0, 3.0, 0.0],
+                    [15.0, 5.0, 0.0],
+                    [16.0, 8.0, 0.0],
+                    [15.0, 11.0, 0.0],
+                    [11.0, 13.0, 0.0]
+                ],
+                "unregistered_goal_list": [
+                    [11.0, 3.0, 0.0],
+                    [16.0, 8.0, 0.0],
+                    [11.0, 13.0, 0.0]
+                ]
+            }
+        }, f)
+
+    record = parse_single_experiment(str(folder))
+    assert record is not None
+    assert record.is_continual is False
+    assert record.display_cl == "単一 (300ep)"
+
+
+def test_parse_single_experiment_continual_learning_true(tmp_path):
+    """
+    continual_learning: true の場合、継続学習モード（is_continual = True, display_cl = '継続 (5+3タスク)'）
+    と正しく認識されることの検証
+    """
+    import yaml
+    folder = tmp_path / "output_20260924_181649"
+    folder.mkdir()
+    yaml_path = folder / "config_used_20260924_181649.yaml"
+    with open(yaml_path, "w", encoding="utf-8") as f:
+        yaml.dump({
+            "mode": {
+                "name": "S-SAP",
+                "use_shield": False,
+                "continual_learning": True
+            },
+            "single_task": {
+                "max_episodes": 300
+            },
+            "continual_learning": {
+                "goal_list": [
+                    [11.0, 3.0, 0.0],
+                    [15.0, 5.0, 0.0],
+                    [16.0, 8.0, 0.0],
+                    [15.0, 11.0, 0.0],
+                    [11.0, 13.0, 0.0]
+                ],
+                "unregistered_goal_list": [
+                    [11.0, 3.0, 0.0],
+                    [16.0, 8.0, 0.0],
+                    [11.0, 13.0, 0.0]
+                ]
+            }
+        }, f)
+
+    record = parse_single_experiment(str(folder))
+    assert record is not None
+    assert record.is_continual is True
+    assert record.display_cl == "継続 (5+3タスク)"
+
+
+def test_parse_single_experiment_continual_learning_string_bool(tmp_path):
+    """文字列の 'false' や 'true' も安全にパースされることの検証"""
+    import yaml
+    folder = tmp_path / "output_20260924_190000"
+    folder.mkdir()
+    yaml_path = folder / "config_used_20260924_190000.yaml"
+    with open(yaml_path, "w", encoding="utf-8") as f:
+        yaml.dump({
+            "mode": {
+                "name": "S-SAP",
+                "continual_learning": "false"
+            },
+            "continual_learning": {
+                "goal_list": [[1.0, 2.0, 0.0]]
+            }
+        }, f)
+
+    record = parse_single_experiment(str(folder))
+    assert record is not None
+    assert record.is_continual is False
+    assert record.display_cl == "単一"
+
+
 
 def test_scan_experiments_directory_recursive(tmp_path):
     # ルート
