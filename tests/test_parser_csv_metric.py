@@ -205,6 +205,68 @@ class TestParserCsvMetric(unittest.TestCase):
                 f.write("a,b\n1,2")
             self.assertEqual(find_log_csv(tmp_dir), main_csv)
 
+    def test_scan_task_options_and_load_task_dataframe(self):
+        """個別タスクCSVファイル群からのタスク検出とDataFrameロードのテスト"""
+        from src.core.parsers.csv_metric import scan_task_options, load_task_dataframe, TaskOption
+        folder = os.path.join(self.test_dir, "task_csv_folder")
+        os.makedirs(folder, exist_ok=True)
+
+        # タスク別CSVファイルを作成
+        p1 = os.path.join(folder, "learning_log_20261011_task_1.csv")
+        p2 = os.path.join(folder, "learning_log_20261011_task_2_unregistered.csv")
+        p_other = os.path.join(folder, "eval_metrics.csv")
+
+        pd.DataFrame({
+            "Task_Episode": [1, 2],
+            "Goal_X": [10.0, 10.0],
+            "Goal_Y": [2.0, 2.0],
+            "TotalReward": [15.0, 25.0]
+        }).to_csv(p1, index=False)
+
+        pd.DataFrame({
+            "Task_Episode": [1, 2],
+            "Goal_X": [14.0, 14.0],
+            "Goal_Y": [4.0, 4.0],
+            "TotalReward": [-10.0, 5.0]
+        }).to_csv(p2, index=False)
+
+        pd.DataFrame({
+            "step": [1, 2],
+            "score": [100, 200]
+        }).to_csv(p_other, index=False)
+
+        # 走査実行
+        options = scan_task_options(folder)
+        self.assertEqual(len(options), 3)
+
+        # Task 1
+        opt1 = options[0]
+        self.assertEqual(opt1.task_id, 1)
+        self.assertIn("Task 1", opt1.display_name)
+        self.assertEqual(opt1.csv_path, p1)
+
+        # Task 2 [非登録]
+        opt2 = options[1]
+        self.assertEqual(opt2.task_id, 2)
+        self.assertIn("[非登録]", opt2.display_name)
+        self.assertEqual(opt2.csv_path, p2)
+
+        # eval_metrics.csv (その他CSV)
+        opt3 = options[2]
+        self.assertEqual(opt3.task_id, -1)
+        self.assertIn("eval_metrics.csv", opt3.display_name)
+
+        # load_task_dataframe のテスト
+        df1 = load_task_dataframe(None, folder, opt1)
+        self.assertIsNotNone(df1)
+        self.assertEqual(len(df1), 2)
+        self.assertEqual(list(df1["TotalReward"]), [15.0, 25.0])
+
+        df2 = load_task_dataframe(None, folder, opt2)
+        self.assertIsNotNone(df2)
+        self.assertEqual(len(df2), 2)
+        self.assertEqual(list(df2["TotalReward"]), [-10.0, 5.0])
+
 
 if __name__ == "__main__":
     unittest.main()

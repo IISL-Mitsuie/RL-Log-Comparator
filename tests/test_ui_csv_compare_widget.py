@@ -89,6 +89,67 @@ class TestUiCsvCompareWidget(unittest.TestCase):
         widget.list_metrics.setCurrentRow(found_loss_row)
         widget.update_chart()
 
+    def test_independent_task_mode_same_folder_different_tasks(self):
+        """同一実験ログフォルダで異なるタスク（Task 1 vs Task 2）を選択・比較描画するテスト"""
+        import pandas as pd
+        folder_cl = os.path.join(self.test_dir, "continual_exp")
+        os.makedirs(folder_cl, exist_ok=True)
+
+        # 2つのタスクを含む統合CSVを作成
+        df_cl = pd.DataFrame({
+            "Task_ID": [1, 1, 1, 2, 2, 2],
+            "Task_Episode": [1, 2, 3, 1, 2, 3],
+            "Total_Episode": [1, 2, 3, 4, 5, 6],
+            "Goal_X": [11.0, 11.0, 11.0, 15.0, 15.0, 15.0],
+            "Goal_Y": [3.0, 3.0, 3.0, 5.0, 5.0, 5.0],
+            "Steps": [100, 80, 60, 120, 90, 70],
+            "TotalReward": [50.0, 70.0, 90.0, 20.0, 40.0, 60.0],
+            "Is_Converged": [False, False, True, False, False, True]
+        })
+        df_cl.to_csv(os.path.join(folder_cl, "learning_log_20261011_120000.csv"), index=False)
+
+        widget = CsvCompareWidget()
+        # フォルダAとフォルダBに同一の実験ログフォルダを設定
+        widget.load_csvs(folder_cl, folder_cl)
+
+        # 個別タスク選択モードを有効化
+        self.assertTrue(widget.cb_independent_tasks.isEnabled())
+        widget.cb_independent_tasks.setChecked(True)
+
+        # A側・B側のコンボボックスが表示・設定されていることを確認
+        self.assertFalse(widget.combo_task_a.isHidden())
+        self.assertFalse(widget.combo_task_b.isHidden())
+        self.assertTrue(widget.combo_task.isHidden())
+
+        # タスク候補数が 2 (Task 1, Task 2) であることを確認
+        self.assertEqual(widget.combo_task_a.count(), 2)
+        self.assertEqual(widget.combo_task_b.count(), 2)
+
+        # A側に Task 1 (index 0), B側に Task 2 (index 1) を設定
+        widget.combo_task_a.setCurrentIndex(0)
+        widget.combo_task_b.setCurrentIndex(1)
+
+        # 再描画
+        widget.update_chart()
+
+        # グラフのタイトルに対比タスク名が含まれていることを確認
+        ax = widget.figure.axes[0]
+        title = ax.get_title()
+        self.assertIn("A: Task 1", title)
+        self.assertIn("B: Task 2", title)
+
+        # X軸ラベルが Task Episode となっていることを確認
+        self.assertEqual(ax.get_xlabel(), "Task Episode (エピソード [1..N])")
+
+        # 境界線オプションが無効化されていることを確認
+        self.assertFalse(widget.cb_task_boundaries.isEnabled())
+
+        # モードをOFFに戻した時の連動動作を確認
+        widget.cb_independent_tasks.setChecked(False)
+        self.assertFalse(widget.combo_task.isHidden())
+        self.assertTrue(widget.combo_task_a.isHidden())
+        self.assertTrue(widget.combo_task_b.isHidden())
+
 
 if __name__ == "__main__":
     unittest.main()
