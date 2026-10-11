@@ -36,6 +36,7 @@ class CsvCompareWidget(QWidget):
         self.info_b = "フォルダ B"
         self.task_options_a: list[TaskOption] = []
         self.task_options_b: list[TaskOption] = []
+        self._need_reset_texts = True
         self._init_ui()
 
     def _init_ui(self):
@@ -87,7 +88,7 @@ class CsvCompareWidget(QWidget):
         self.list_metrics = QListWidget()
         self._update_metrics_list()
 
-        self.list_metrics.currentRowChanged.connect(self.update_chart)
+        self.list_metrics.currentRowChanged.connect(self._on_metric_changed)
         left_lay.addWidget(self.list_metrics)
 
         # 3. 移動平均設定
@@ -103,33 +104,70 @@ class CsvCompareWidget(QWidget):
         self.lbl_ma_val = QLabel("10 ep")
         left_lay.addWidget(self.lbl_ma_val)
 
-        # 4. 凡例ラベル設定 (カスタム)
-        legend_box = QGroupBox("凡例ラベル設定 (カスタム)")
-        legend_lay = QVBoxLayout(legend_box)
-        legend_lay.setSpacing(6)
+        # 4. グラフテキスト設定 (タイトル・軸・凡例)
+        text_box = QGroupBox("グラフテキスト設定 (タイトル・軸・凡例)")
+        text_lay = QVBoxLayout(text_box)
+        text_lay.setSpacing(5)
+
+        lay_title = QHBoxLayout()
+        lbl_title = QLabel("タイトル:")
+        lbl_title.setFixedWidth(52)
+        lay_title.addWidget(lbl_title)
+        self.txt_title = QLineEdit()
+        self.txt_title.setToolTip("グラフ上部のタイトル (空欄にすると非表示)")
+        self.txt_title.textChanged.connect(self._on_custom_text_changed)
+        lay_title.addWidget(self.txt_title)
+        text_lay.addLayout(lay_title)
+
+        lay_xlabel = QHBoxLayout()
+        lbl_xlabel = QLabel("X軸:")
+        lbl_xlabel.setFixedWidth(52)
+        lay_xlabel.addWidget(lbl_xlabel)
+        self.txt_xlabel = QLineEdit()
+        self.txt_xlabel.setToolTip("横軸 (X軸) のラベル (空欄にすると非表示)")
+        self.txt_xlabel.textChanged.connect(self._on_custom_text_changed)
+        lay_xlabel.addWidget(self.txt_xlabel)
+        text_lay.addLayout(lay_xlabel)
+
+        lay_ylabel = QHBoxLayout()
+        lbl_ylabel = QLabel("Y軸:")
+        lbl_ylabel.setFixedWidth(52)
+        lay_ylabel.addWidget(lbl_ylabel)
+        self.txt_ylabel = QLineEdit()
+        self.txt_ylabel.setToolTip("縦軸 (Y軸) のラベル (空欄にすると非表示)")
+        self.txt_ylabel.textChanged.connect(self._on_custom_text_changed)
+        lay_ylabel.addWidget(self.txt_ylabel)
+        text_lay.addLayout(lay_ylabel)
 
         lay_leg_a = QHBoxLayout()
-        lay_leg_a.addWidget(QLabel("凡例 A:"))
+        lbl_leg_a = QLabel("凡例 A:")
+        lbl_leg_a.setFixedWidth(52)
+        lay_leg_a.addWidget(lbl_leg_a)
         self.txt_legend_a = QLineEdit()
         self.txt_legend_a.setPlaceholderText("A系列の凡例 (空欄でデフォルト)")
-        self.txt_legend_a.textChanged.connect(self._on_custom_legend_changed)
+        self.txt_legend_a.textChanged.connect(self._on_custom_text_changed)
         lay_leg_a.addWidget(self.txt_legend_a)
-        legend_lay.addLayout(lay_leg_a)
+        text_lay.addLayout(lay_leg_a)
 
         lay_leg_b = QHBoxLayout()
-        lay_leg_b.addWidget(QLabel("凡例 B:"))
+        lbl_leg_b = QLabel("凡例 B:")
+        lbl_leg_b.setFixedWidth(52)
+        lay_leg_b.addWidget(lbl_leg_b)
         self.txt_legend_b = QLineEdit()
         self.txt_legend_b.setPlaceholderText("B系列の凡例 (空欄でデフォルト)")
-        self.txt_legend_b.textChanged.connect(self._on_custom_legend_changed)
+        self.txt_legend_b.textChanged.connect(self._on_custom_text_changed)
         lay_leg_b.addWidget(self.txt_legend_b)
-        legend_lay.addLayout(lay_leg_b)
+        text_lay.addLayout(lay_leg_b)
 
-        self.btn_reset_legend = QPushButton("🔄 デフォルトに戻す")
-        self.btn_reset_legend.setToolTip("凡例のカスタム入力をクリアして自動生成の凡例に戻します")
-        self.btn_reset_legend.clicked.connect(self._reset_custom_legends)
-        legend_lay.addWidget(self.btn_reset_legend)
+        self.btn_reset_texts = QPushButton("🔄 すべてデフォルトに戻す")
+        self.btn_reset_texts.setToolTip("タイトル・軸ラベル・凡例をデフォルト設定に戻します")
+        self.btn_reset_texts.clicked.connect(self._reset_all_custom_texts)
+        text_lay.addWidget(self.btn_reset_texts)
 
-        left_lay.addWidget(legend_box)
+        # 既存テストおよび旧コードとの後方互換性エイリアス
+        self.btn_reset_legend = self.btn_reset_texts
+
+        left_lay.addWidget(text_box)
 
         # 5. オプション（生データ、境界線、収束マーカー）
         self.cb_raw_data = QCheckBox("生データを背景表示")
@@ -171,18 +209,26 @@ class CsvCompareWidget(QWidget):
         self.lbl_ma_val.setText(f"{val} ep")
         self.update_chart()
 
+    def _on_custom_text_changed(self, text: str) -> None:
+        """テキスト入力変更時のリアルタイム再描画"""
+        self.update_chart()
+
     def _on_custom_legend_changed(self, text: str) -> None:
-        """凡例テキスト変更時のリアルタイム再描画"""
+        """後方互換: 凡例テキスト変更時のリアルタイム再描画"""
+        self._on_custom_text_changed(text)
+
+    def _reset_all_custom_texts(self) -> None:
+        """すべてのテキスト入力（タイトル・軸・凡例）をデフォルトに戻す"""
+        self._need_reset_texts = True
         self.update_chart()
 
     def _reset_custom_legends(self) -> None:
-        """凡例入力をクリアしてデフォルトに戻す"""
-        self.txt_legend_a.blockSignals(True)
-        self.txt_legend_b.blockSignals(True)
-        self.txt_legend_a.clear()
-        self.txt_legend_b.clear()
-        self.txt_legend_a.blockSignals(False)
-        self.txt_legend_b.blockSignals(False)
+        """後方互換用: デフォルトに戻す"""
+        self._reset_all_custom_texts()
+
+    def _on_metric_changed(self, row: int) -> None:
+        """指標変更時（質問2: 案B - すべてデフォルトに自動リセット）"""
+        self._need_reset_texts = True
         self.update_chart()
 
     def _on_independent_tasks_toggled(self, checked: bool) -> None:
@@ -205,6 +251,7 @@ class CsvCompareWidget(QWidget):
             self.cb_task_boundaries.setEnabled(has_multiple_tasks and is_all_tasks)
             self.cb_converged_points.setEnabled(has_multiple_tasks and is_all_tasks)
 
+        self._need_reset_texts = True
         self.update_chart()
 
     def _on_task_changed(self, index: int) -> None:
@@ -214,10 +261,12 @@ class CsvCompareWidget(QWidget):
         is_all_tasks = (task_id == 0 or task_id is None)
         self.cb_task_boundaries.setEnabled(has_multiple_tasks and is_all_tasks)
         self.cb_converged_points.setEnabled(has_multiple_tasks and is_all_tasks)
+        self._need_reset_texts = True
         self.update_chart()
 
     def _on_individual_task_changed(self, index: int) -> None:
-        """個別タスク選択変更時の再描画"""
+        """個別タスク選択変更時の再描画（質問2: 案B - すべてデフォルトに自動リセット）"""
+        self._need_reset_texts = True
         self.update_chart()
 
     def load_csvs(self, folder_a: str, folder_b: str) -> None:
@@ -227,13 +276,8 @@ class CsvCompareWidget(QWidget):
         self.info_a = get_experiment_info(folder_a)
         self.info_b = get_experiment_info(folder_b)
 
-        # フォルダ再読み込み時はカスタム凡例をクリアしてデフォルトに戻す
-        self.txt_legend_a.blockSignals(True)
-        self.txt_legend_b.blockSignals(True)
-        self.txt_legend_a.clear()
-        self.txt_legend_b.clear()
-        self.txt_legend_a.blockSignals(False)
-        self.txt_legend_b.blockSignals(False)
+        # フォルダ再読み込み時はテキスト設定をデフォルトにリセット
+        self._need_reset_texts = True
 
         self.df_a = read_log_csv(folder_a)
         self.df_b = read_log_csv(folder_b)
@@ -387,8 +431,8 @@ class CsvCompareWidget(QWidget):
 
             show_boundaries = False  # 個別タスク比較では全体境界線は描画しない
             show_convergence = self.cb_converged_points.isChecked()
-            x_label = "Task Episode (エピソード [1..N])"
-            chart_title = f"学習推移比較: {title_metric_name} (A: {task_name_a} vs B: {task_name_b})"
+            default_x_label = "Task Episode (エピソード [1..N])"
+            default_chart_title = f"学習推移比較: {title_metric_name} (A: {task_name_a} vs B: {task_name_b})"
 
         else:
             # --- 通常モード（連動） ---
@@ -400,15 +444,54 @@ class CsvCompareWidget(QWidget):
             data_b = compute_metric_series(self.df_b, metric_key, window, f"B: {self.info_b}", task_filter_id=task_id)
 
             if task_id > 0:
-                x_label = f"Task Episode (Task {task_id} 内エピソード [1..N])"
+                default_x_label = f"Task Episode (Task {task_id} 内エピソード [1..N])"
             else:
-                x_label = "Total Episode (通算エピソード)"
-            chart_title = f"学習推移比較: {title_metric_name}"
+                default_x_label = "Total Episode (通算エピソード)"
+            default_chart_title = f"学習推移比較: {title_metric_name}"
 
-        # プレースホルダーテキストを現在のデフォルト凡例で更新
+        default_y_label = data_a.y_label or data_b.y_label or "Value"
+
+        # リセットフラグが立っている場合（指標・タスク変更、フォルダロード、リセットボタン押下時）
+        # 質問1: 案A（入力欄にデフォルト値が常時表示され、消すと空欄化）
+        # 質問2: 案B（指標やタスクを変更したときは、すべてデフォルトに自動リセット）
+        if getattr(self, '_need_reset_texts', False):
+            if hasattr(self, 'txt_title'):
+                self.txt_title.blockSignals(True)
+                self.txt_title.setText(default_chart_title)
+                self.txt_title.blockSignals(False)
+            if hasattr(self, 'txt_xlabel'):
+                self.txt_xlabel.blockSignals(True)
+                self.txt_xlabel.setText(default_x_label)
+                self.txt_xlabel.blockSignals(False)
+            if hasattr(self, 'txt_ylabel'):
+                self.txt_ylabel.blockSignals(True)
+                self.txt_ylabel.setText(default_y_label)
+                self.txt_ylabel.blockSignals(False)
+            if hasattr(self, 'txt_legend_a'):
+                self.txt_legend_a.blockSignals(True)
+                self.txt_legend_a.clear()
+                self.txt_legend_a.blockSignals(False)
+            if hasattr(self, 'txt_legend_b'):
+                self.txt_legend_b.blockSignals(True)
+                self.txt_legend_b.clear()
+                self.txt_legend_b.blockSignals(False)
+            self._need_reset_texts = False
+
+        # プレースホルダーの更新
+        if hasattr(self, 'txt_title'):
+            self.txt_title.setPlaceholderText(default_chart_title)
+        if hasattr(self, 'txt_xlabel'):
+            self.txt_xlabel.setPlaceholderText(default_x_label)
+        if hasattr(self, 'txt_ylabel'):
+            self.txt_ylabel.setPlaceholderText(default_y_label)
         if hasattr(self, 'txt_legend_a') and hasattr(self, 'txt_legend_b'):
             self.txt_legend_a.setPlaceholderText(data_a.legend_label_ma or "A系列のデフォルト凡例")
             self.txt_legend_b.setPlaceholderText(data_b.legend_label_ma or "B系列のデフォルト凡例")
+
+        # 描画用テキストの取得（空欄を含む任意変更に対応）
+        chart_title = self.txt_title.text() if hasattr(self, 'txt_title') else default_chart_title
+        x_label = self.txt_xlabel.text() if hasattr(self, 'txt_xlabel') else default_x_label
+        y_label = self.txt_ylabel.text() if hasattr(self, 'txt_ylabel') else default_y_label
 
         # カスタム凡例の取得と適用 (案A: 入力文字列そのままを完全上書き)
         custom_a = self.txt_legend_a.text().strip() if hasattr(self, 'txt_legend_a') else ""
@@ -418,7 +501,6 @@ class CsvCompareWidget(QWidget):
         legend_label_b = custom_b if custom_b else data_b.legend_label_ma
 
         has_plot = False
-        y_label = data_a.y_label or data_b.y_label or "Value"
 
         # A系列のプロット (青系統)
         if data_a.has_data and data_a.x is not None:

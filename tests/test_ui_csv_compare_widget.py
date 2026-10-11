@@ -191,6 +191,62 @@ class TestUiCsvCompareWidget(unittest.TestCase):
         widget.load_csvs(self.folder_a, self.folder_b)
         self.assertEqual(widget.txt_legend_a.text(), "")
 
+    def test_custom_chart_texts_and_reset(self):
+        """タイトル・X軸・Y軸ラベルの任意変更（空欄化含む）、リセットおよび指標変更時の動作テスト"""
+        widget = CsvCompareWidget()
+        widget.load_csvs(self.folder_a, self.folder_b)
+
+        # 1. 初期状態でデフォルト値が入力欄およびグラフに設定されていることを確認
+        self.assertTrue(len(widget.txt_title.text()) > 0)
+        self.assertEqual(widget.txt_xlabel.text(), "Total Episode (通算エピソード)")
+        self.assertTrue(len(widget.txt_ylabel.text()) > 0)
+
+        ax = widget.figure.axes[0]
+        self.assertEqual(ax.get_title(), widget.txt_title.text())
+        self.assertEqual(ax.get_xlabel(), widget.txt_xlabel.text())
+        self.assertEqual(ax.get_ylabel(), widget.txt_ylabel.text())
+
+        # 2. 任意文字列にカスタム変更（リアルタイム反映）
+        widget.txt_title.setText("カスタムタイトル (My Curve)")
+        widget.txt_xlabel.setText("Custom Episode")
+        widget.txt_ylabel.setText("Custom Reward")
+
+        ax = widget.figure.axes[0]
+        self.assertEqual(ax.get_title(), "カスタムタイトル (My Curve)")
+        self.assertEqual(ax.get_xlabel(), "Custom Episode")
+        self.assertEqual(ax.get_ylabel(), "Custom Reward")
+
+        # 3. 空欄（非表示）化の検証（空文字を設定した場合）
+        widget.txt_title.setText("")
+        widget.txt_xlabel.setText("")
+        widget.txt_ylabel.setText("")
+
+        ax = widget.figure.axes[0]
+        self.assertEqual(ax.get_title(), "")
+        self.assertEqual(ax.get_xlabel(), "")
+        self.assertEqual(ax.get_ylabel(), "")
+
+        # 4. 「すべてデフォルトに戻す」ボタンの検証
+        widget.btn_reset_texts.click()
+
+        self.assertTrue(len(widget.txt_title.text()) > 0)
+        self.assertEqual(widget.txt_xlabel.text(), "Total Episode (通算エピソード)")
+        self.assertTrue(len(widget.txt_ylabel.text()) > 0)
+
+        ax = widget.figure.axes[0]
+        self.assertEqual(ax.get_title(), widget.txt_title.text())
+        self.assertEqual(ax.get_xlabel(), widget.txt_xlabel.text())
+        self.assertEqual(ax.get_ylabel(), widget.txt_ylabel.text())
+
+        # 5. 指標変更時にデフォルトへ自動リセットされることの検証 (質問2: 案B)
+        widget.txt_title.setText("手動で変更したタイトル")
+        # 指標を 2 番目の項目に変更
+        if widget.list_metrics.count() > 1:
+            widget.list_metrics.setCurrentRow(1)
+            # 案Bにより、指標変更時に新しい指標のデフォルトにリセットされていることを確認
+            self.assertNotEqual(widget.txt_title.text(), "手動で変更したタイトル")
+            self.assertTrue(widget.txt_title.text().startswith("学習推移比較:"))
+
 
 if __name__ == "__main__":
     unittest.main()
