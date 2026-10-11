@@ -257,12 +257,176 @@ def read_log_csv(folder_path: str) -> Optional[pd.DataFrame]:
         return None
 
 
-def get_available_tasks(df: Optional[pd.DataFrame]) -> list[tuple[int, str]]:
+@dataclass
+class TaskOption:
+    """タスクまたは個別CSVの選択肢情報"""
+    task_id: int                     # 0: 全タスク統合, 1..N: 特定タスクID, -1: 個別CSVファイル
+    display_name: str                # UIコンボボックスの表示テキスト (例: "Task 1 (Goal: [11.0, 3.0])")
+    short_name: str                  # 凡例・タイトル用の簡潔なタスク名 (例: "Task 1")
+    csv_path: Optional[str] = None   # 個別ファイルパス (Noneの場合は統合CSVから抽出)
+    goal_desc: str = ""              # ゴール説明
+
+
+def scan_task_options(folder_path: str, df: Optional[pd.DataFrame] = None) -> list[TaskOption]:
     """
-    DataFrame に含まれるタスク一覧を [(task_id, 表示名), ...] の形式で返す。
+    フォルダおよび DataFrame から利用可能な全タスク選択肢（タスクおよびCSVファイル）を検出して返す。
+    - 全タスク統合（task_id=0）は含まず、各タスク（Task 1, 2...）および個別CSVファイルを返す。
+    """
+    options: list[TaskOption] = []
+    seen_task_ids: set[int] = set()
+
+    # 1. df があれば Task_ID 列から抽出
+    if df is not None and not df.empty and 'Task_ID' in df.columns:
+        for t_id in sorted(df['Task_ID'].dropna().unique()):
+            try:
+                t_int = int(t_id)
+            except (ValueError, TypeError):
+                continue
+            seen_task_ids.add(t_int)
+            sub = df[df['Task_ID'] == t_id]
+            goal_desc = ""
+            if 'Goal_X' in sub.columns and 'Goal_Y' in sub.columns and not sub.empty:
+                gx = sub['Goal_X'].iloc[0]
+                gy = sub['Goal_Y'].iloc[0]
+                goal_desc = f" (Goal: [{gx:.1f}, {gy:.1f}])"
+            options.append(TaskOption(
+                task_id=t_int,
+                display_name=f"Task {t_int}{goal_desc}",
+                short_name=f"Task {t_int}",
+                goal_desc=goal_desc
+            ))
+
+    # 2. フォルダ内のタスク別CSV (learning_log_*_task_*.csv) を走査
+    if folder_path and os.path.isdir(folder_path):
+        import re
+        task_csv_files = sorted(glob.glob(os.path.join(folder_path, "learning_log_*_task_*.csv")))
+        for fpath in task_csv_files:
+            fname = os.path.basename(fpath)
+            m = re.search(r"_task_(\d+)(_unregistered)?\.csv$", fname)
+            if m:
+                t_int = int(m.group(1))
+                is_unreg = bool(m.group(2))
+                unreg_label = " [非登録]" if is_unreg else ""
+
+                if t_int in seen_task_ids:
+                    # 既に統合CSVから検出済みの場合は csv_path を補完
+                    for opt in options:
+                        if opt.task_id == t_int:
+                            opt.csv_path = fpath
+                            if is_unreg and "[非登録]" not in opt.display_name:
+                                opt.display_name += " [非登録]"
+                                opt.short_name += " [非登録]"
+                else:
+                    seen_task_ids.add(t_int)
+                    goal_desc = ""
+                    try:
+                        head_df = pd.read_csv(fpath, nrows=1)
+                        if 'Goal_X' in head_df.columns and 'Goal_Y' in head_df.columns:
+                            gx = head_df['Goal_X'].iloc[0]
+                            gy = head_df['Goal_Y'].iloc[0]
+                            goal_desc = f" (Goal: [{gx:.1f}, {gy:.1f}])"
+                    except Exception:
+                        pass
+                    options.append(TaskOption(
+                        task_id=t_int,
+                        display_name=f"Task {t_int}{unreg_label}{goal_desc}",
+                        short_name=f"Task {t_int}{unreg_label}",
+                        csv_path=fpath,
+                        goal_desc=goal_desc
+                    ))
+
+        # 3. 汎用CSVファイル（learning_log_*.csv を除く *.csv 等）の走査
+        other_csvs = sorted(glob.glob(os.path.join(folder_path, "*.csv")))
+        for fpath in other_csvs:
+            fname = os.path.basename(fpath)
+            if fname.startswith("learning_log_"):
+                continue
+            options.append(TaskOption(
+                task_id=-1,
+                display_name=f"{fname} (CSVファイル)",
+                short_name=fname,
+                csv_path=fpath
+            ))
+
+    # task_id 昇順（-1 は末尾）でソート
+    options.sort(key=lambda o: (1 if o.task_id == -1 else 0, o.task_id))
+    return options
+
+
+def load_task_dataframe(
+    df_main: Optional[pd.DataFrame],
+    folder_path: str,
+    task_option: TaskOption
+) -> Optional[pd.DataFrame]:
+    """
+    TaskOption に応じた DataFrame を安全に取得・正規化して返す。
+    - 個別 csv_path が指定されていれば優先ロード。
+    - なければ df_main から task_id でフィルタリング。
+    """
+    if task_option.csv_path and os.path.isfile(task_option.csv_path):
+        try:
+            df = pd.read_csv(task_option.csv_path)
+            # エピソード列・収束列の正規化
+            if 'Episode' not in df.columns:
+                if 'Total_Episode' in df.columns:
+                    df['Episode'] = df['Total_Episode']
+                else:
+                    ep_alias = find_column_by_aliases(df, ["episode", "total_episode", "episodes", "epoch", "epochs", "iteration", "iterations", "step", "steps"])
+                    if ep_alias and pd.api.types.is_numeric_dtype(df[ep_alias]):
+                        df['Episode'] = df[ep_alias]
+                    else:
+                        df['Episode'] = np.arange(1, len(df) + 1)
+            if 'Is_Converged' in df.columns:
+                if df['Is_Converged'].dtype != bool:
+                    df['Is_Converged'] = df['Is_Converged'].astype(str).str.lower().isin(['true', '1'])
+            return df
+        except Exception as e:
+            print(f"[WARN] Failed to read task csv ({task_option.csv_path}): {e}")
+
+    # 個別ファイルがない場合、df_main から抽出
+    if df_main is not None and not df_main.empty:
+        if task_option.task_id > 0 and 'Task_ID' in df_main.columns:
+            sub = df_main[df_main['Task_ID'] == task_option.task_id].copy()
+            if not sub.empty:
+                return sub
+        elif task_option.task_id == 0:
+            return df_main
+
+    # df_main にもなく csv_path もない場合、フォルダから task_{task_id} をフォールバック検索
+    if folder_path and task_option.task_id > 0:
+        cands = sorted(glob.glob(os.path.join(folder_path, f"*_task_{task_option.task_id}*.csv")))
+        if cands and os.path.isfile(cands[0]):
+            try:
+                df = pd.read_csv(cands[0])
+                if 'Episode' not in df.columns:
+                    df['Episode'] = np.arange(1, len(df) + 1)
+                if 'Is_Converged' in df.columns and df['Is_Converged'].dtype != bool:
+                    df['Is_Converged'] = df['Is_Converged'].astype(str).str.lower().isin(['true', '1'])
+                return df
+            except Exception:
+                pass
+
+    return None
+
+
+def get_available_tasks(
+    df: Optional[pd.DataFrame] = None,
+    folder_path: Optional[str] = None
+) -> list[tuple[int, str]]:
+    """
+    DataFrame およびフォルダに含まれるタスク一覧を [(task_id, 表示名), ...] の形式で返す。
     task_id 0 は常に「全タスク統合 (通算エピソード)」を表す。
     """
     default_list = [(0, "全タスク統合 (通算エピソード)")]
+    if folder_path:
+        opts = scan_task_options(folder_path, df)
+        if not opts:
+            return default_list
+        res = [(0, "全タスク統合 (通算エピソード)")]
+        for opt in opts:
+            res.append((opt.task_id, opt.display_name))
+        return res
+
     if df is None or len(df) == 0 or 'Task_ID' not in df.columns:
         return default_list
 
@@ -284,12 +448,6 @@ def get_available_tasks(df: Optional[pd.DataFrame]) -> list[tuple[int, str]]:
             gx = sub['Goal_X'].iloc[0]
             gy = sub['Goal_Y'].iloc[0]
             goal_desc = f" (Goal: [{gx:.1f}, {gy:.1f}])"
-
-        # 非登録タスクの識別（Acquired_Policies が増加しない、または設定等）
-        is_unregistered = False
-        if 'Acquired_Policies' in sub.columns and len(sub) > 0:
-            # タスク内最後の Acquired_Policies が直前と変わらないなどの判定
-            pass
 
         tasks.append((t_int, f"Task {t_int}{goal_desc}"))
 
@@ -465,29 +623,30 @@ def _build_metric_result(
     converged_episodes: list[int] = []
     converged_y_values: list[float] = []
 
-    # 統合表示（タスクフィルタなし）の場合のみ境界線と収束ポイントを抽出
-    if not is_task_filtered:
-        if 'Task_ID' in df.columns:
-            # Task_ID の変化点を抽出
-            task_diff = df['Task_ID'].diff()
-            boundary_indices = np.where(task_diff != 0)[0]
-            for idx in boundary_indices:
-                if idx > 0:  # 先頭行以外
-                    ep_val = int(df['Episode'].iloc[idx])
-                    task_id_val = int(df['Task_ID'].iloc[idx])
-                    task_boundaries.append((ep_val, f"Task {task_id_val}"))
+    # 境界線は統合表示（タスクフィルタなし）の場合のみ抽出
+    if not is_task_filtered and 'Task_ID' in df.columns:
+        # Task_ID の変化点を抽出
+        task_diff = df['Task_ID'].diff()
+        boundary_indices = np.where(task_diff != 0)[0]
+        for idx in boundary_indices:
+            if idx > 0:  # 先頭行以外
+                ep_val = int(df['Episode'].iloc[idx])
+                task_id_val = int(df['Task_ID'].iloc[idx])
+                task_boundaries.append((ep_val, f"Task {task_id_val}"))
 
-        if 'Is_Converged' in df.columns:
-            conv_mask = (df['Is_Converged'] == True).values
-            if np.any(conv_mask):
-                conv_indices = np.where(conv_mask)[0]
-                for idx in conv_indices:
-                    ep_val = int(df['Episode'].iloc[idx])
+    # 収束ポイントは統合表示・タスク絞り込み時を問わず抽出
+    if 'Is_Converged' in df.columns:
+        conv_mask = (df['Is_Converged'] == True).values
+        if np.any(conv_mask):
+            conv_indices = np.where(conv_mask)[0]
+            for idx in conv_indices:
+                if idx < len(x):
+                    ep_val = int(x[idx])
                     converged_episodes.append(ep_val)
                     # マーカー用のY値（移動平均または生データ）
-                    if y_ma is not None:
+                    if y_ma is not None and idx < len(y_ma):
                         converged_y_values.append(float(y_ma[idx]))
-                    elif y_raw is not None:
+                    elif y_raw is not None and idx < len(y_raw):
                         converged_y_values.append(float(y_raw[idx]))
                     else:
                         converged_y_values.append(0.0)

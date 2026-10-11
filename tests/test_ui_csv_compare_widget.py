@@ -89,6 +89,164 @@ class TestUiCsvCompareWidget(unittest.TestCase):
         widget.list_metrics.setCurrentRow(found_loss_row)
         widget.update_chart()
 
+    def test_independent_task_mode_same_folder_different_tasks(self):
+        """同一実験ログフォルダで異なるタスク（Task 1 vs Task 2）を選択・比較描画するテスト"""
+        import pandas as pd
+        folder_cl = os.path.join(self.test_dir, "continual_exp")
+        os.makedirs(folder_cl, exist_ok=True)
+
+        # 2つのタスクを含む統合CSVを作成
+        df_cl = pd.DataFrame({
+            "Task_ID": [1, 1, 1, 2, 2, 2],
+            "Task_Episode": [1, 2, 3, 1, 2, 3],
+            "Total_Episode": [1, 2, 3, 4, 5, 6],
+            "Goal_X": [11.0, 11.0, 11.0, 15.0, 15.0, 15.0],
+            "Goal_Y": [3.0, 3.0, 3.0, 5.0, 5.0, 5.0],
+            "Steps": [100, 80, 60, 120, 90, 70],
+            "TotalReward": [50.0, 70.0, 90.0, 20.0, 40.0, 60.0],
+            "Is_Converged": [False, False, True, False, False, True]
+        })
+        df_cl.to_csv(os.path.join(folder_cl, "learning_log_20261011_120000.csv"), index=False)
+
+        widget = CsvCompareWidget()
+        # フォルダAとフォルダBに同一の実験ログフォルダを設定
+        widget.load_csvs(folder_cl, folder_cl)
+
+        # 個別タスク選択モードを有効化
+        self.assertTrue(widget.cb_independent_tasks.isEnabled())
+        widget.cb_independent_tasks.setChecked(True)
+
+        # A側・B側のコンボボックスが表示・設定されていることを確認
+        self.assertFalse(widget.combo_task_a.isHidden())
+        self.assertFalse(widget.combo_task_b.isHidden())
+        self.assertTrue(widget.combo_task.isHidden())
+
+        # タスク候補数が 2 (Task 1, Task 2) であることを確認
+        self.assertEqual(widget.combo_task_a.count(), 2)
+        self.assertEqual(widget.combo_task_b.count(), 2)
+
+        # A側に Task 1 (index 0), B側に Task 2 (index 1) を設定
+        widget.combo_task_a.setCurrentIndex(0)
+        widget.combo_task_b.setCurrentIndex(1)
+
+        # 再描画
+        widget.update_chart()
+
+        # グラフのタイトルに対比タスク名が含まれていることを確認
+        ax = widget.figure.axes[0]
+        title = ax.get_title()
+        self.assertIn("A: Task 1", title)
+        self.assertIn("B: Task 2", title)
+
+        # X軸ラベルが Task Episode となっていることを確認
+        self.assertEqual(ax.get_xlabel(), "Task Episode (エピソード [1..N])")
+
+        # 境界線オプションが無効化されていることを確認
+        self.assertFalse(widget.cb_task_boundaries.isEnabled())
+
+        # モードをOFFに戻した時の連動動作を確認
+        widget.cb_independent_tasks.setChecked(False)
+        self.assertFalse(widget.combo_task.isHidden())
+        self.assertTrue(widget.combo_task_a.isHidden())
+        self.assertTrue(widget.combo_task_b.isHidden())
+
+    def test_custom_legend_labels_and_reset(self):
+        """凡例のカスタム文字列編集・リアルタイム反映およびリセット動作のテスト"""
+        widget = CsvCompareWidget()
+        widget.load_csvs(self.folder_a, self.folder_b)
+
+        # プレースホルダーが自動生成凡例で設定されていることを確認
+        self.assertTrue(len(widget.txt_legend_a.placeholderText()) > 0)
+        self.assertTrue(len(widget.txt_legend_b.placeholderText()) > 0)
+
+        # 凡例A・Bを任意文字列にカスタム設定 (案A: 完全上書き)
+        widget.txt_legend_a.setText("提案手法 (Proposed)")
+        widget.txt_legend_b.setText("従来手法 (Baseline)")
+
+        ax = widget.figure.axes[0]
+        legend = ax.get_legend()
+        self.assertIsNotNone(legend)
+        legend_texts = [t.get_text() for t in legend.get_texts()]
+
+        self.assertIn("提案手法 (Proposed)", legend_texts)
+        self.assertIn("従来手法 (Baseline)", legend_texts)
+
+        # リセットボタンをクリック
+        widget.btn_reset_legend.click()
+
+        # 入力欄がクリアされていることを確認
+        self.assertEqual(widget.txt_legend_a.text(), "")
+        self.assertEqual(widget.txt_legend_b.text(), "")
+
+        # デフォルトの自動生成凡例に戻っていることを確認
+        ax = widget.figure.axes[0]
+        legend = ax.get_legend()
+        self.assertIsNotNone(legend)
+        reset_texts = [t.get_text() for t in legend.get_texts()]
+        self.assertNotIn("提案手法 (Proposed)", reset_texts)
+        self.assertTrue(any("A:" in t for t in reset_texts))
+
+        # フォルダ再読み込み時に入力欄が自動クリアされることを確認
+        widget.txt_legend_a.setText("手動入力ラベル")
+        widget.load_csvs(self.folder_a, self.folder_b)
+        self.assertEqual(widget.txt_legend_a.text(), "")
+
+    def test_custom_chart_texts_and_reset(self):
+        """タイトル・X軸・Y軸ラベルの任意変更（空欄化含む）、リセットおよび指標変更時の動作テスト"""
+        widget = CsvCompareWidget()
+        widget.load_csvs(self.folder_a, self.folder_b)
+
+        # 1. 初期状態でデフォルト値が入力欄およびグラフに設定されていることを確認
+        self.assertTrue(len(widget.txt_title.text()) > 0)
+        self.assertEqual(widget.txt_xlabel.text(), "Total Episode (通算エピソード)")
+        self.assertTrue(len(widget.txt_ylabel.text()) > 0)
+
+        ax = widget.figure.axes[0]
+        self.assertEqual(ax.get_title(), widget.txt_title.text())
+        self.assertEqual(ax.get_xlabel(), widget.txt_xlabel.text())
+        self.assertEqual(ax.get_ylabel(), widget.txt_ylabel.text())
+
+        # 2. 任意文字列にカスタム変更（リアルタイム反映）
+        widget.txt_title.setText("カスタムタイトル (My Curve)")
+        widget.txt_xlabel.setText("Custom Episode")
+        widget.txt_ylabel.setText("Custom Reward")
+
+        ax = widget.figure.axes[0]
+        self.assertEqual(ax.get_title(), "カスタムタイトル (My Curve)")
+        self.assertEqual(ax.get_xlabel(), "Custom Episode")
+        self.assertEqual(ax.get_ylabel(), "Custom Reward")
+
+        # 3. 空欄（非表示）化の検証（空文字を設定した場合）
+        widget.txt_title.setText("")
+        widget.txt_xlabel.setText("")
+        widget.txt_ylabel.setText("")
+
+        ax = widget.figure.axes[0]
+        self.assertEqual(ax.get_title(), "")
+        self.assertEqual(ax.get_xlabel(), "")
+        self.assertEqual(ax.get_ylabel(), "")
+
+        # 4. 「すべてデフォルトに戻す」ボタンの検証
+        widget.btn_reset_texts.click()
+
+        self.assertTrue(len(widget.txt_title.text()) > 0)
+        self.assertEqual(widget.txt_xlabel.text(), "Total Episode (通算エピソード)")
+        self.assertTrue(len(widget.txt_ylabel.text()) > 0)
+
+        ax = widget.figure.axes[0]
+        self.assertEqual(ax.get_title(), widget.txt_title.text())
+        self.assertEqual(ax.get_xlabel(), widget.txt_xlabel.text())
+        self.assertEqual(ax.get_ylabel(), widget.txt_ylabel.text())
+
+        # 5. 指標変更時にデフォルトへ自動リセットされることの検証 (質問2: 案B)
+        widget.txt_title.setText("手動で変更したタイトル")
+        # 指標を 2 番目の項目に変更
+        if widget.list_metrics.count() > 1:
+            widget.list_metrics.setCurrentRow(1)
+            # 案Bにより、指標変更時に新しい指標のデフォルトにリセットされていることを確認
+            self.assertNotEqual(widget.txt_title.text(), "手動で変更したタイトル")
+            self.assertTrue(widget.txt_title.text().startswith("学習推移比較:"))
+
 
 if __name__ == "__main__":
     unittest.main()
