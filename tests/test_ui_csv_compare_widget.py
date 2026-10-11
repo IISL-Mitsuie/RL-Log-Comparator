@@ -150,6 +150,47 @@ class TestUiCsvCompareWidget(unittest.TestCase):
         self.assertTrue(widget.combo_task_a.isHidden())
         self.assertTrue(widget.combo_task_b.isHidden())
 
+    def test_custom_legend_labels_and_reset(self):
+        """凡例のカスタム文字列編集・リアルタイム反映およびリセット動作のテスト"""
+        widget = CsvCompareWidget()
+        widget.load_csvs(self.folder_a, self.folder_b)
+
+        # プレースホルダーが自動生成凡例で設定されていることを確認
+        self.assertTrue(len(widget.txt_legend_a.placeholderText()) > 0)
+        self.assertTrue(len(widget.txt_legend_b.placeholderText()) > 0)
+
+        # 凡例A・Bを任意文字列にカスタム設定 (案A: 完全上書き)
+        widget.txt_legend_a.setText("提案手法 (Proposed)")
+        widget.txt_legend_b.setText("従来手法 (Baseline)")
+
+        ax = widget.figure.axes[0]
+        legend = ax.get_legend()
+        self.assertIsNotNone(legend)
+        legend_texts = [t.get_text() for t in legend.get_texts()]
+
+        self.assertIn("提案手法 (Proposed)", legend_texts)
+        self.assertIn("従来手法 (Baseline)", legend_texts)
+
+        # リセットボタンをクリック
+        widget.btn_reset_legend.click()
+
+        # 入力欄がクリアされていることを確認
+        self.assertEqual(widget.txt_legend_a.text(), "")
+        self.assertEqual(widget.txt_legend_b.text(), "")
+
+        # デフォルトの自動生成凡例に戻っていることを確認
+        ax = widget.figure.axes[0]
+        legend = ax.get_legend()
+        self.assertIsNotNone(legend)
+        reset_texts = [t.get_text() for t in legend.get_texts()]
+        self.assertNotIn("提案手法 (Proposed)", reset_texts)
+        self.assertTrue(any("A:" in t for t in reset_texts))
+
+        # フォルダ再読み込み時に入力欄が自動クリアされることを確認
+        widget.txt_legend_a.setText("手動入力ラベル")
+        widget.load_csvs(self.folder_a, self.folder_b)
+        self.assertEqual(widget.txt_legend_a.text(), "")
+
 
 if __name__ == "__main__":
     unittest.main()

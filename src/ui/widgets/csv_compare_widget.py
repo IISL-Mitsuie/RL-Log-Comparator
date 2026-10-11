@@ -1,13 +1,14 @@
 """
 数値ログ (CSV) 重ね合わせ比較グラフビューウィジェット
 単一学習および継続学習（全タスク統合 / タスク別ズーム、タスク境界線、収束スターマーカー）に対応
-フォルダA/B間での個別タスク選択（同一フォルダ内での異タスク比較など）をサポート
+フォルダA/B間での個別タスク選択および凡例の任意編集（カスタム凡例）をサポート
 """
 
 from typing import Optional
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QGroupBox,
-    QListWidget, QListWidgetItem, QSlider, QLabel, QCheckBox, QComboBox
+    QListWidget, QListWidgetItem, QSlider, QLabel, QCheckBox, QComboBox,
+    QLineEdit, QPushButton
 )
 from PySide6.QtCore import Qt
 
@@ -42,7 +43,7 @@ class CsvCompareWidget(QWidget):
 
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # 左側: 対象タスク選択・指標選択・移動平均設定
+        # 左側: 対象タスク選択・指標選択・移動平均設定・凡例設定
         left_box = QGroupBox("比較コントロール")
         left_lay = QVBoxLayout(left_box)
         left_lay.setSpacing(8)
@@ -102,7 +103,35 @@ class CsvCompareWidget(QWidget):
         self.lbl_ma_val = QLabel("10 ep")
         left_lay.addWidget(self.lbl_ma_val)
 
-        # 4. オプション（生データ、境界線、収束マーカー）
+        # 4. 凡例ラベル設定 (カスタム)
+        legend_box = QGroupBox("凡例ラベル設定 (カスタム)")
+        legend_lay = QVBoxLayout(legend_box)
+        legend_lay.setSpacing(6)
+
+        lay_leg_a = QHBoxLayout()
+        lay_leg_a.addWidget(QLabel("凡例 A:"))
+        self.txt_legend_a = QLineEdit()
+        self.txt_legend_a.setPlaceholderText("A系列の凡例 (空欄でデフォルト)")
+        self.txt_legend_a.textChanged.connect(self._on_custom_legend_changed)
+        lay_leg_a.addWidget(self.txt_legend_a)
+        legend_lay.addLayout(lay_leg_a)
+
+        lay_leg_b = QHBoxLayout()
+        lay_leg_b.addWidget(QLabel("凡例 B:"))
+        self.txt_legend_b = QLineEdit()
+        self.txt_legend_b.setPlaceholderText("B系列の凡例 (空欄でデフォルト)")
+        self.txt_legend_b.textChanged.connect(self._on_custom_legend_changed)
+        lay_leg_b.addWidget(self.txt_legend_b)
+        legend_lay.addLayout(lay_leg_b)
+
+        self.btn_reset_legend = QPushButton("🔄 デフォルトに戻す")
+        self.btn_reset_legend.setToolTip("凡例のカスタム入力をクリアして自動生成の凡例に戻します")
+        self.btn_reset_legend.clicked.connect(self._reset_custom_legends)
+        legend_lay.addWidget(self.btn_reset_legend)
+
+        left_lay.addWidget(legend_box)
+
+        # 5. オプション（生データ、境界線、収束マーカー）
         self.cb_raw_data = QCheckBox("生データを背景表示")
         self.cb_raw_data.setChecked(True)
         self.cb_raw_data.toggled.connect(self.update_chart)
@@ -140,6 +169,20 @@ class CsvCompareWidget(QWidget):
 
     def _on_ma_changed(self, val: int) -> None:
         self.lbl_ma_val.setText(f"{val} ep")
+        self.update_chart()
+
+    def _on_custom_legend_changed(self, text: str) -> None:
+        """凡例テキスト変更時のリアルタイム再描画"""
+        self.update_chart()
+
+    def _reset_custom_legends(self) -> None:
+        """凡例入力をクリアしてデフォルトに戻す"""
+        self.txt_legend_a.blockSignals(True)
+        self.txt_legend_b.blockSignals(True)
+        self.txt_legend_a.clear()
+        self.txt_legend_b.clear()
+        self.txt_legend_a.blockSignals(False)
+        self.txt_legend_b.blockSignals(False)
         self.update_chart()
 
     def _on_independent_tasks_toggled(self, checked: bool) -> None:
@@ -183,6 +226,14 @@ class CsvCompareWidget(QWidget):
         self.folder_b = folder_b
         self.info_a = get_experiment_info(folder_a)
         self.info_b = get_experiment_info(folder_b)
+
+        # フォルダ再読み込み時はカスタム凡例をクリアしてデフォルトに戻す
+        self.txt_legend_a.blockSignals(True)
+        self.txt_legend_b.blockSignals(True)
+        self.txt_legend_a.clear()
+        self.txt_legend_b.clear()
+        self.txt_legend_a.blockSignals(False)
+        self.txt_legend_b.blockSignals(False)
 
         self.df_a = read_log_csv(folder_a)
         self.df_b = read_log_csv(folder_b)
@@ -290,7 +341,7 @@ class CsvCompareWidget(QWidget):
             self._on_task_changed(self.combo_task.currentIndex())
 
     def update_chart(self) -> None:
-        """選択指標・タスク・設定に基づきグラフを描画更新"""
+        """選択指標・タスク・凡例設定に基づきグラフを描画更新"""
         self.figure.clear()
         self.figure.patch.set_facecolor('#ffffff')
         ax = self.figure.add_subplot(111, facecolor='#ffffff')
@@ -354,6 +405,18 @@ class CsvCompareWidget(QWidget):
                 x_label = "Total Episode (通算エピソード)"
             chart_title = f"学習推移比較: {title_metric_name}"
 
+        # プレースホルダーテキストを現在のデフォルト凡例で更新
+        if hasattr(self, 'txt_legend_a') and hasattr(self, 'txt_legend_b'):
+            self.txt_legend_a.setPlaceholderText(data_a.legend_label_ma or "A系列のデフォルト凡例")
+            self.txt_legend_b.setPlaceholderText(data_b.legend_label_ma or "B系列のデフォルト凡例")
+
+        # カスタム凡例の取得と適用 (案A: 入力文字列そのままを完全上書き)
+        custom_a = self.txt_legend_a.text().strip() if hasattr(self, 'txt_legend_a') else ""
+        custom_b = self.txt_legend_b.text().strip() if hasattr(self, 'txt_legend_b') else ""
+
+        legend_label_a = custom_a if custom_a else data_a.legend_label_ma
+        legend_label_b = custom_b if custom_b else data_b.legend_label_ma
+
         has_plot = False
         y_label = data_a.y_label or data_b.y_label or "Value"
 
@@ -362,12 +425,12 @@ class CsvCompareWidget(QWidget):
             if show_raw and data_a.y_raw is not None:
                 ax.plot(data_a.x, data_a.y_raw, color="#4a90e2", alpha=0.25, linewidth=1.0)
             if data_a.y_ma is not None:
-                ax.plot(data_a.x, data_a.y_ma, label=data_a.legend_label_ma, color="#0055ff", linewidth=2.0)
+                ax.plot(data_a.x, data_a.y_ma, label=legend_label_a, color="#0055ff", linewidth=2.0)
                 has_plot = True
 
             # Aの収束ポイント描画 (★マーカー)
             if show_convergence and data_a.converged_episodes:
-                label_star_a = "A 収束点 (★)"
+                label_star_a = f"{custom_a} 収束点 (★)" if custom_a else "A 収束点 (★)"
                 ax.scatter(
                     data_a.converged_episodes, data_a.converged_y_values,
                     marker='*', s=140, color="#002299", edgecolors="#ffffff", linewidths=1.0,
@@ -379,12 +442,12 @@ class CsvCompareWidget(QWidget):
             if show_raw and data_b.y_raw is not None:
                 ax.plot(data_b.x, data_b.y_raw, color="#e74c3c", alpha=0.25, linewidth=1.0)
             if data_b.y_ma is not None:
-                ax.plot(data_b.x, data_b.y_ma, label=data_b.legend_label_ma, color="#cc0000", linewidth=2.0)
+                ax.plot(data_b.x, data_b.y_ma, label=legend_label_b, color="#cc0000", linewidth=2.0)
                 has_plot = True
 
             # Bの収束ポイント描画 (★マーカー)
             if show_convergence and data_b.converged_episodes:
-                label_star_b = "B 収束点 (★)"
+                label_star_b = f"{custom_b} 収束点 (★)" if custom_b else "B 収束点 (★)"
                 ax.scatter(
                     data_b.converged_episodes, data_b.converged_y_values,
                     marker='*', s=140, color="#990000", edgecolors="#ffffff", linewidths=1.0,
