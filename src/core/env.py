@@ -79,6 +79,9 @@ def setup_matplotlib_japanese_font():
     plt.rcParams['xtick.color'] = '#222222'
     plt.rcParams['ytick.color'] = '#222222'
     plt.rcParams['axes.edgecolor'] = '#888888'
+    plt.rcParams['savefig.dpi'] = 300
+    plt.rcParams['pdf.fonttype'] = 42
+    plt.rcParams['ps.fonttype'] = 42
 
 
 def initialize_environment():
