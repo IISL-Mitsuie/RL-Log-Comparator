@@ -35,6 +35,7 @@ hiddenimports = [
     'PySide6.QtCore',
     'PySide6.QtGui',
     'PySide6.QtWidgets',
+    'src_bootstrap',
     'src',
     'src.config',
     'src.core',

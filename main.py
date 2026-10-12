@@ -14,6 +14,10 @@ Usage:
     python main.py [folder_A] [folder_B]
 """
 
+# src 配下の import より前に Python のバージョンを確認する必要があるため最優先で実行
+from src_bootstrap import exit_if_unsupported_python
+exit_if_unsupported_python()
+
 import sys
 import os
 from PySide6.QtWidgets import QApplication
