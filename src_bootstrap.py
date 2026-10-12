@@ -9,13 +9,11 @@ Python 3.12 未満のバージョンで実行された場合に、
 
 import os
 import sys
-from typing import Optional
 
 MIN_PYTHON = (3, 12)
 
 
 def ensure_supported_python(version_info=None):
-    # type: (Optional[tuple]) -> Optional[str]
     """
     Python バージョンを検証する。
 
@@ -37,7 +35,6 @@ def ensure_supported_python(version_info=None):
 
 
 def exit_if_unsupported_python(version_info=None, show_dialog=True):
-    # type: (Optional[tuple], bool) -> None
     """
     Python バージョンが MIN_PYTHON 未満の場合、案内メッセージを出力して終了する。
 
