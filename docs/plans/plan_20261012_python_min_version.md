@@ -82,15 +82,15 @@
 
 ## 完了条件
 
-- [ ] `src_bootstrap.py` が追加され、`ensure_supported_python` と `exit_if_unsupported_python` が仕様どおりに動く
-- [ ] `main.py` で、ほかのどの import よりも前にバージョン確認が呼ばれている
-- [ ] 3.12 未満の Python で `main.py` を実行すると、`SyntaxError` ではなく、必要なバージョンと現在のバージョンを伝えるメッセージが出て、終了コード 1 で終わる（実行した Python のバージョンと出力を報告する）
-- [ ] 3.12 以上（開発機の 3.13）では、従来どおり起動できる（`python main.py` を数秒起動して終了させる、または `QT_QPA_PLATFORM=offscreen` で `import main` が通ることを確認する）
-- [ ] `README.md` に `3.10` が残っていない（`grep -n "3\.10" README.md` が 0 件）
-- [ ] `packaging/RL-Log-Comparator.spec` の `hiddenimports` に `src_bootstrap` が含まれている
-- [ ] `tests/test_python_version_guard.py` が追加され、すべて通る
-- [ ] `python -m pytest -q` の結果が、変更前（94 passed / 18 errors）から悪化していない（error 件数が 18 のままで、passed が増えている）
-- [ ] この計画書の「完了条件」のチェックリストが更新されている
+- [x] `src_bootstrap.py` が追加され、`ensure_supported_python` と `exit_if_unsupported_python` が仕様どおりに動く
+- [x] `main.py` で、ほかのどの import よりも前にバージョン確認が呼ばれている
+- [x] 3.12 未満の Python で `main.py` を実行すると、`SyntaxError` ではなく、必要なバージョンと現在のバージョンを伝えるメッセージが出て、終了コード 1 で終わる（実行した Python のバージョンと出力を報告する）
+- [x] 3.12 以上（開発機の 3.13）では、従来どおり起動できる（`python main.py` を数秒起動して終了させる、または `QT_QPA_PLATFORM=offscreen` で `import main` が通ることを確認する）
+- [x] `README.md` に `3.10` が残っていない（`grep -n "3\.10" README.md` が 0 件）
+- [x] `packaging/RL-Log-Comparator.spec` の `hiddenimports` に `src_bootstrap` が含まれている
+- [x] `tests/test_python_version_guard.py` が追加され、すべて通る
+- [x] `python -m pytest -q` の結果が、変更前（94 passed / 18 errors）から悪化していない（error 件数が 18 のままで、passed が増えている）
+- [x] この計画書の「完了条件」のチェックリストが更新されている
 
 ## 検証方法
 
