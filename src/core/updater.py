@@ -4,6 +4,7 @@ GitHub Releases API を利用した新バージョン確認・インストーラ
 依存ライブラリ: Python 標準ライブラリのみ
 """
 
+import logging
 import os
 import sys
 import json
@@ -14,6 +15,8 @@ import tempfile
 import threading
 from typing import Optional, Callable, Tuple
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 GITHUB_API_LATEST_RELEASE_URL = "https://api.github.com/repos/{owner}/{repo}/releases/latest"
 
@@ -98,6 +101,7 @@ def fetch_latest_release_info(
                 return None
             data = json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+        logger.debug("最新リリース情報を取得できませんでした: %s", url, exc_info=True)
         return None
 
     tag_name = data.get("tag_name", "")
@@ -185,7 +189,7 @@ def download_installer(
                         try:
                             os.remove(save_path)
                         except OSError:
-                            pass
+                            logger.debug("中断したダウンロードファイルを削除できませんでした: %s", save_path, exc_info=True)
                     raise InterruptedError("Download was cancelled by user.")
 
                 chunk = resp.read(chunk_size)

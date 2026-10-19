@@ -24,16 +24,25 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QIcon
 
 from src.core.env import initialize_environment
+from src.core.logging_setup import setup_logging, install_exception_hooks
 from src.core.paths import get_app_icon_path
+from src.ui.error_dialog import ErrorDialogNotifier
 from src.ui.main_window import ExperimentCompareApp
 
 
 def main():
+    # 0. ログファイルの設定（配布版でもエラーの詳細を残す。環境の初期化中のログも記録するため最初に行う）
+    log_path = setup_logging()
+
     # 1. 実行環境・Matplotlib・フォントの初期設定
     initialize_environment()
 
     # 2. Qt アプリケーションの初期化
     app = QApplication(sys.argv)
+
+    # 未捕捉例外をログに記録し、エラーダイアログで通知する
+    error_notifier = ErrorDialogNotifier(log_path, parent=app)
+    install_exception_hooks(error_notifier.notify)
 
     # アプリアイコンの設定
     icon_path = get_app_icon_path()

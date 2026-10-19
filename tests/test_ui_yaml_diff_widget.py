@@ -44,6 +44,26 @@ class TestUiYamlDiffWidget(unittest.TestCase):
         self.assertGreaterEqual(root_count_all, root_count_diff_only)
         self.assertIn("全パラメータを表示中", widget.lbl_status.text())
 
+    def test_broken_yaml_shows_parse_error(self):
+        """設定ファイルの解析に失敗した場合、ステータスラベルに表示する (ISSUE-07)"""
+        import os
+        broken = os.path.join(self.test_dir, "broken")
+        os.makedirs(broken)
+        with open(os.path.join(broken, "config_used_1.yaml"), "w", encoding="utf-8") as f:
+            f.write("a: [1, 2\nb: {\n")
+
+        widget = YamlDiffWidget()
+        widget.load_yamls(broken, self.folder_b)
+        self.assertIn("設定ファイルの解析に失敗しました: config_used_1.yaml", widget.lbl_status.text())
+
+        # 表示の切り替えで再描画しても、失敗の表示は残る
+        widget.cb_diff_only.setChecked(False)
+        self.assertIn("設定ファイルの解析に失敗しました", widget.lbl_status.text())
+
+        # 正常なフォルダを読み直すと消える
+        widget.load_yamls(self.folder_a, self.folder_b)
+        self.assertNotIn("解析に失敗しました", widget.lbl_status.text())
+
 
 if __name__ == "__main__":
     unittest.main()
