@@ -174,7 +174,7 @@ python -m pytest
 変更をプッシュする前に、リポジトリ直下の [`check.bat`](check.bat) で静的解析とテストをまとめて実行します：
 
 ```bat
-check.bat
+.\check.bat
 ```
 
 1. **ruff**（`python -m ruff check src main.py src_bootstrap.py packaging tests`）: 未使用の import・未定義の名前・構文エラーを検出します（有効な規則は `F` と `E9`）。
