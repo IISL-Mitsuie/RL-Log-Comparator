@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem, QSlider, QLabel, QCheckBox, QComboBox,
     QLineEdit, QPushButton, QSpinBox
 )
-from PySide6.QtCore import Qt, QSettings
+from PySide6.QtCore import Qt
 
 import matplotlib as mpl
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
@@ -21,12 +21,12 @@ mpl.rcParams['savefig.dpi'] = 300
 
 
 from src.config import (
-    SETTINGS_ORG, SETTINGS_APP,
     SETTINGS_KEY_CHART_FONT_LABEL, SETTINGS_KEY_CHART_FONT_TICKS,
     SETTINGS_KEY_CHART_FONT_TITLE, SETTINGS_KEY_CHART_FONT_LEGEND,
     DEFAULT_CHART_FONT_LABEL, DEFAULT_CHART_FONT_TICKS,
     DEFAULT_CHART_FONT_TITLE, DEFAULT_CHART_FONT_LEGEND
 )
+from src.core.settings import create_settings
 from src.core.parsers.experiment import get_experiment_info
 from src.core.parsers.csv_metric import (
     read_log_csv, compute_metric_series, get_available_tasks,
@@ -286,7 +286,7 @@ class CsvCompareWidget(QWidget):
 
     def _load_chart_font_settings(self) -> None:
         """QSettings からフォントサイズ設定を読み込み"""
-        settings = QSettings(SETTINGS_ORG, SETTINGS_APP)
+        settings = create_settings()
         try:
             font_label = int(settings.value(SETTINGS_KEY_CHART_FONT_LABEL, DEFAULT_CHART_FONT_LABEL))
         except (ValueError, TypeError):
@@ -323,7 +323,7 @@ class CsvCompareWidget(QWidget):
 
     def _save_chart_font_settings(self) -> None:
         """フォントサイズ設定を QSettings に保存"""
-        settings = QSettings(SETTINGS_ORG, SETTINGS_APP)
+        settings = create_settings()
         if hasattr(self, 'spin_font_label'):
             settings.setValue(SETTINGS_KEY_CHART_FONT_LABEL, self.spin_font_label.value())
         if hasattr(self, 'spin_font_ticks'):

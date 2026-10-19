@@ -50,23 +50,24 @@ def test_scan_and_populate_table(explorer_widget, tmp_path):
 
     # テーブルに2行存在すること
     assert explorer_widget.table.rowCount() == 2
-    # ヘッダー列: モード, Shield, フォルダ名, タイムスタンプ, ...
+    # ヘッダー列: モード, Shield, 学習種別, フォルダ名, タイムスタンプ, ...
     assert explorer_widget.table.horizontalHeaderItem(0).text() == "モード"
     assert explorer_widget.table.horizontalHeaderItem(1).text() == "Shield"
-    assert explorer_widget.table.horizontalHeaderItem(2).text() == "フォルダ名"
-    assert explorer_widget.table.horizontalHeaderItem(3).text() == "タイムスタンプ"
+    assert explorer_widget.table.horizontalHeaderItem(2).text() == "学習種別"
+    assert explorer_widget.table.horizontalHeaderItem(3).text() == "フォルダ名"
+    assert explorer_widget.table.horizontalHeaderItem(4).text() == "タイムスタンプ"
 
     # 1行目（新しい順）の確認
     assert explorer_widget.table.item(0, 0).text() == "S-SAP"
     assert explorer_widget.table.item(0, 1).text() == "-"
-    assert explorer_widget.table.item(0, 2).text() == "output_20260802_150000"
-    assert "2026/08/02" in explorer_widget.table.item(0, 3).text()
+    assert explorer_widget.table.item(0, 3).text() == "output_20260802_150000"
+    assert "2026/08/02" in explorer_widget.table.item(0, 4).text()
 
-    # 動的プレビュータブがアルファベット順に生成されていること
+    # 動的プレビュータブがカテゴリ順（軌跡 → 報酬 → ステップ）に日本語表示名で生成されていること
     assert explorer_widget.preview_tabs.count() == 3
-    assert explorer_widget.preview_tabs.tabText(0) == "learning_rewards"
-    assert explorer_widget.preview_tabs.tabText(1) == "learning_steps"
-    assert explorer_widget.preview_tabs.tabText(2) == "trajectory"
+    assert explorer_widget.preview_tabs.tabText(0) == "ロボット走行軌跡"
+    assert explorer_widget.preview_tabs.tabText(1) == "報酬推移 (全体)"
+    assert explorer_widget.preview_tabs.tabText(2) == "ステップ推移 (全体)"
 
 
 def test_tab_index_preservation_on_selection_change(explorer_widget, tmp_path):
@@ -78,17 +79,17 @@ def test_tab_index_preservation_on_selection_change(explorer_widget, tmp_path):
 
     explorer_widget.set_root_directory(str(tmp_path))
 
-    # タブをインデックス1 (learning_steps) に切り替え
-    explorer_widget.preview_tabs.setCurrentIndex(1)
-    assert explorer_widget.preview_tabs.currentIndex() == 1
-    assert explorer_widget.preview_tabs.tabText(1) == "learning_steps"
+    # タブをインデックス2 (learning_steps) に切り替え
+    explorer_widget.preview_tabs.setCurrentIndex(2)
+    assert explorer_widget.preview_tabs.currentIndex() == 2
+    assert explorer_widget.preview_tabs.tabText(2) == "ステップ推移 (全体)"
 
     # テーブルの選択行を2行目（インデックス1）に変更
     explorer_widget.table.selectRow(1)
 
     # 行が変わっても learning_steps タブの選択が維持されていること
-    assert explorer_widget.preview_tabs.currentIndex() == 1
-    assert explorer_widget.preview_tabs.tabText(explorer_widget.preview_tabs.currentIndex()) == "learning_steps"
+    assert explorer_widget.preview_tabs.currentIndex() == 2
+    assert explorer_widget.preview_tabs.tabText(explorer_widget.preview_tabs.currentIndex()) == "ステップ推移 (全体)"
 
 
 def test_dynamic_tabs_with_different_images_and_no_images(explorer_widget, tmp_path):
@@ -121,22 +122,22 @@ def test_dynamic_tabs_with_different_images_and_no_images(explorer_widget, tmp_p
     # 2行目 (output_20260801_100000: 2画像) を選択
     explorer_widget.table.selectRow(1)
     assert explorer_widget.preview_tabs.count() == 2
-    assert explorer_widget.preview_tabs.tabText(0) == "learning_rewards"
-    assert explorer_widget.preview_tabs.tabText(1) == "trajectory"
+    assert explorer_widget.preview_tabs.tabText(0) == "ロボット走行軌跡"
+    assert explorer_widget.preview_tabs.tabText(1) == "報酬推移 (全体)"
 
-    # trajectory タブ (インデックス1) を選択
+    # learning_rewards タブ (インデックス1) を選択
     explorer_widget.preview_tabs.setCurrentIndex(1)
-    assert explorer_widget.preview_tabs.tabText(explorer_widget.preview_tabs.currentIndex()) == "trajectory"
+    assert explorer_widget.preview_tabs.tabText(explorer_widget.preview_tabs.currentIndex()) == "報酬推移 (全体)"
 
     # 再度1行目 (画像なし) を選択
     explorer_widget.table.selectRow(0)
     assert explorer_widget.preview_tabs.count() == 1
     assert explorer_widget.preview_tabs.tabText(0) == "画像なし"
 
-    # 再び2行目を選択した際、記憶されていた trajectory タブへ自動復帰すること
+    # 再び2行目を選択した際、記憶されていた learning_rewards タブへ自動復帰すること
     explorer_widget.table.selectRow(1)
     assert explorer_widget.preview_tabs.currentIndex() == 1
-    assert explorer_widget.preview_tabs.tabText(explorer_widget.preview_tabs.currentIndex()) == "trajectory"
+    assert explorer_widget.preview_tabs.tabText(explorer_widget.preview_tabs.currentIndex()) == "報酬推移 (全体)"
 
 
 def test_signals_set_folder_a_and_b(explorer_widget, tmp_path, qtbot):
@@ -180,14 +181,14 @@ def test_quick_filter(explorer_widget, tmp_path):
     assert explorer_widget.table.isRowHidden(1) is False
 
 
-def test_mode_and_shield_display_with_reference_yaml(explorer_widget, tmp_path):
-    """reference/config_used_20260909_145945.yaml 形式のデータでモードとShield表示を検証"""
+def test_mode_and_shield_display_with_fixture_yaml(explorer_widget, tmp_path):
+    """tests/fixtures/config_used_20260101_120000.yaml 形式のデータでモードとShield表示を検証"""
     import shutil
-    ref_yaml = os.path.join(os.path.dirname(__file__), "..", "reference", "config_used_20260909_145945.yaml")
-    
-    exp_dir = tmp_path / "S-SAP" / "output_20260909_145945"
+    ref_yaml = os.path.join(os.path.dirname(__file__), "fixtures", "config_used_20260101_120000.yaml")
+
+    exp_dir = tmp_path / "S-SAP" / "output_20260101_120000"
     exp_dir.mkdir(parents=True)
-    shutil.copy(ref_yaml, exp_dir / "config_used_20260909_145945.yaml")
+    shutil.copy(ref_yaml, exp_dir / "config_used_20260101_120000.yaml")
 
     explorer_widget.set_root_directory(str(tmp_path))
     assert explorer_widget.table.rowCount() == 1
@@ -195,8 +196,8 @@ def test_mode_and_shield_display_with_reference_yaml(explorer_widget, tmp_path):
     # モードが S-SAP、Shield が 無効 と表示されること
     assert explorer_widget.table.item(0, 0).text() == "S-SAP"
     assert explorer_widget.table.item(0, 1).text() == "無効"
-    assert explorer_widget.table.item(0, 2).text() == "output_20260909_145945"
-    assert "2026/09/09" in explorer_widget.table.item(0, 3).text()
+    assert explorer_widget.table.item(0, 3).text() == "output_20260101_120000"
+    assert "2026/01/01" in explorer_widget.table.item(0, 4).text()
 
 
 def test_toggle_sidebar(explorer_widget):
@@ -229,8 +230,9 @@ def test_column_visibility_integration(explorer_widget, tmp_path):
     explorer_widget.set_root_directory(str(tmp_path))
     assert explorer_widget.table.isColumnHidden(0) is False  # モード列
     assert explorer_widget.table.isColumnHidden(1) is False  # Shield列
-    assert explorer_widget.table.isColumnHidden(2) is False  # フォルダ名列
-    assert explorer_widget.table.isColumnHidden(3) is True   # タイムスタンプ列 (デフォルト非表示)
+    assert explorer_widget.table.isColumnHidden(2) is False  # 学習種別列
+    assert explorer_widget.table.isColumnHidden(3) is False  # フォルダ名列
+    assert explorer_widget.table.isColumnHidden(4) is True   # タイムスタンプ列 (デフォルト非表示)
 
     # Shield列を非表示にする
     explorer_widget._hidden_column_names.add("Shield")
@@ -242,7 +244,7 @@ def test_column_visibility_integration(explorer_widget, tmp_path):
     # タイムスタンプ列を表示にする
     explorer_widget._hidden_column_names.discard("タイムスタンプ")
     explorer_widget._apply_column_visibility()
-    assert explorer_widget.table.isColumnHidden(3) is False
+    assert explorer_widget.table.isColumnHidden(4) is False
 
 
 def test_column_filter_apply_and_clear(explorer_widget, tmp_path):

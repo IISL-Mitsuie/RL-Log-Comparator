@@ -32,13 +32,12 @@ class TestUiCsvCompareWidget(unittest.TestCase):
         shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def _clean_font_settings(self):
-        from PySide6.QtCore import QSettings
+        from src.core.settings import create_settings
         from src.config import (
-            SETTINGS_ORG, SETTINGS_APP,
             SETTINGS_KEY_CHART_FONT_LABEL, SETTINGS_KEY_CHART_FONT_TICKS,
             SETTINGS_KEY_CHART_FONT_TITLE, SETTINGS_KEY_CHART_FONT_LEGEND
         )
-        s = QSettings(SETTINGS_ORG, SETTINGS_APP)
+        s = create_settings()
         s.remove(SETTINGS_KEY_CHART_FONT_LABEL)
         s.remove(SETTINGS_KEY_CHART_FONT_TICKS)
         s.remove(SETTINGS_KEY_CHART_FONT_TITLE)

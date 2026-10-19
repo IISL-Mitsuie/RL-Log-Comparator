@@ -69,13 +69,15 @@ RL-Log-Comparator/
 ├── README.md                           # 本ドキュメント (操作マニュアル・ビルド手順・仕様)
 ├── DATA_FORMAT.md                      # 実験ログ・YAML設定ファイルのフォーマット仕様書
 ├── requirements.txt                    # 依存パッケージ一覧 (PySide6, matplotlib, pandas, etc.)
+├── requirements-dev.txt                # 開発用依存パッケージ一覧 (pytest, pytest-qt)
+├── pyproject.toml                      # 開発ツール設定 (pytest)
 ├── main.py                             # アプリケーション本体 (エントリーポイント / PySide6 GUI)
 ├── build_all.bat                       # ワンクリック全自動クリーンビルドバッチ (Windows用)
 ├── src/                                # アプリケーションソースコード
 │   ├── config.py                       # バージョン・定数・アプリ設定
 │   ├── core/                           # コアロジック (パーサー・履歴・アップデートエンジン)
 │   └── ui/                             # UIコンポーネント (メインウィンドウ・ウィジェット・ダイアログ)
-├── tests/                              # pytest による自動テストスイート (全92件)
+├── tests/                              # pytest による自動テストスイート (テストデータは tests/fixtures/)
 └── packaging/                          # 配布・パッケージング設定フォルダ
     ├── app_icon.ico                    # マルチサイズアプリアイコン (16〜256px)
     ├── build.py                        # クリーン仮想環境構築・PyInstaller・Inno Setup連動ビルドエンジン
@@ -96,6 +98,8 @@ RL-Log-Comparator/
 | [`README.md`](README.md) | 本ドキュメント（操作マニュアル・ビルド手順・プロジェクト概要） |
 | [`DATA_FORMAT.md`](DATA_FORMAT.md) | 実験ログ・YAML設定ファイルの入出力フォーマット仕様書 |
 | [`requirements.txt`](requirements.txt) | 最小限の Python 依存パッケージ定義一覧 |
+| [`requirements-dev.txt`](requirements-dev.txt) | 開発・テスト用の依存パッケージ定義一覧 |
+| [`pyproject.toml`](pyproject.toml) | 開発ツール設定 (pytest) |
 | [`main.py`](main.py) | アプリケーションのエントリーポイント (PySide6 GUI 本体) |
 | [`src/`](src/) | アプリケーションソースコードパッケージ |
 | ├─ [`src/config.py`](src/config.py) | 定数・パス・バージョン・設定定義 |
@@ -148,6 +152,23 @@ python main.py path/to/output_A path/to/output_B
 
 * 依存パッケージ定義: [`requirements.txt`](requirements.txt)
 * 起動スクリプト: [`main.py`](main.py)
+
+---
+
+### 3.3. 開発者向け: テストの実行
+開発用の依存パッケージ（pytest, pytest-qt）をインストールしてからテストを実行します：
+
+```bash
+# 開発用依存パッケージのインストール (requirements.txt も併せてインストールされます)
+pip install -r requirements-dev.txt
+
+# 全テストの実行
+python -m pytest
+```
+
+* Windows では [`tests/run_tests.bat`](tests/run_tests.bat) からも実行できます。
+* テスト実行中のアプリ設定（フォルダ履歴・フォントサイズ等）は一時 INI ファイルに保存され、通常利用時の設定（レジストリ）は読み書きされません。
+* 開発用依存パッケージ定義: [`requirements-dev.txt`](requirements-dev.txt)、pytest 設定: [`pyproject.toml`](pyproject.toml)
 
 ---
 
