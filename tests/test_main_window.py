@@ -6,6 +6,7 @@ import os
 import unittest
 import tempfile
 import shutil
+from unittest.mock import patch
 from src.ui.main_window import ExperimentCompareApp
 from src.config import CLEAR_HISTORY_TEXT
 from tests.helpers import get_qapp, create_dummy_experiment_folder
@@ -94,6 +95,15 @@ class TestMainWindow(unittest.TestCase):
         window._update_history_combos()
 
         self.assertIn(self.folder_a, [window.combo_folder_a.itemText(i) for i in range(window.combo_folder_a.count())])
+
+    def test_init_does_not_check_update_over_network(self):
+        # テスト中はウィンドウ生成時に GitHub API へ更新確認を行わない
+        with patch("src.ui.main_window.fetch_latest_release_info") as mock_fetch:
+            window = self._create_isolated_window()
+            bg_thread = getattr(window, "_bg_thread", None)
+            if bg_thread is not None:
+                bg_thread.join(timeout=5)
+            mock_fetch.assert_not_called()
 
     def test_update_header_button(self):
         window = self._create_isolated_window()

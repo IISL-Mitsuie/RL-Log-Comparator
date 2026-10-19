@@ -4,11 +4,22 @@
 
 import os
 import sys
+import urllib.error
 from typing import Optional
 import yaml
 import pandas as pd
 from PySide6.QtWidgets import QApplication
 from PIL import Image
+
+
+# テスト中に遮断した urlopen の宛先 URL（conftest.py がテストごとに検査する）
+blocked_requests: list[str] = []
+
+
+def deny_urlopen(url, *args, **kwargs):
+    """urllib.request.urlopen の代替。外部へ接続せず、宛先を記録して URLError を送出する"""
+    blocked_requests.append(getattr(url, "full_url", url))
+    raise urllib.error.URLError("テスト中のネットワークアクセスは禁止されています（urlopen をモックしてください）")
 
 
 def get_qapp() -> QApplication:
