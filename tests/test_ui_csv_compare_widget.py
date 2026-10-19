@@ -44,6 +44,65 @@ class TestUiCsvCompareWidget(unittest.TestCase):
         s.remove(SETTINGS_KEY_CHART_FONT_LEGEND)
 
 
+    def _make_csv_folder(self, name: str, data: dict) -> str:
+        import pandas as pd
+        folder = os.path.join(self.test_dir, name)
+        os.makedirs(folder, exist_ok=True)
+        pd.DataFrame(data).to_csv(os.path.join(folder, "progress.csv"), index=False)
+        return folder
+
+    def test_generic_step_csv_x_label_and_metrics(self):
+        """step 列を X 軸とする汎用 CSV で、ステップ数指標が出ず、X 軸ラベルが step を示す (ISSUE-04)"""
+        folder = self._make_csv_folder("gen_step", {"step": [10, 20, 30], "reward": [1.0, 2.0, 3.0]})
+        widget = CsvCompareWidget()
+        widget.load_csvs(folder, folder)
+
+        texts = [widget.list_metrics.item(i).text() for i in range(widget.list_metrics.count())]
+        self.assertFalse(any(t.startswith("ステップ数") for t in texts), texts)
+        self.assertIn("step", widget.txt_xlabel.text())
+        self.assertNotIn("Total Episode", widget.txt_xlabel.text())
+
+    def test_x_axis_kind_mismatch_label(self):
+        """A と B で X 軸の種類が違う場合、ラベルに両方を示し注記を出す (ISSUE-04)"""
+        folder_a = self._make_csv_folder("ep_axis", {"Episode": [1, 2, 3], "reward": [1.0, 2.0, 3.0]})
+        folder_b = self._make_csv_folder("step_axis", {"step": [10, 20, 30], "reward": [1.0, 2.0, 3.0]})
+        widget = CsvCompareWidget()
+        widget.load_csvs(folder_a, folder_b)
+
+        self.assertTrue(widget.txt_xlabel.text().startswith("A: "))
+        self.assertIn(" / B: ", widget.txt_xlabel.text())
+        ax = widget.figure.axes[0]
+        self.assertTrue(any("X 軸の単位が A/B で異なります" in t.get_text() for t in ax.texts))
+
+    def test_x_label_from_side_with_data(self):
+        """指標が片側にしかない場合、データがある側の X 軸ラベルを使う (ISSUE-04)"""
+        folder_a = self._make_csv_folder("ep_only", {"Episode": [1, 2], "reward": [1.0, 2.0]})
+        folder_b = self._make_csv_folder("step_loss", {"step": [10, 20], "reward": [1.0, 2.0], "loss": [0.5, 0.4]})
+        widget = CsvCompareWidget()
+        widget.load_csvs(folder_a, folder_b)
+        for row in range(widget.list_metrics.count()):
+            if widget.list_metrics.item(row).text().startswith("loss"):
+                widget.list_metrics.setCurrentRow(row)
+                break
+        self.assertEqual(widget.txt_xlabel.text(), "Step (step)")
+
+    def test_nan_points_are_not_plotted(self):
+        """欠損値 (NaN) の点を描画データから除外する (ISSUE-04)"""
+        import math
+        folder = self._make_csv_folder("nan", {"step": [1, 2, 3, 4], "loss": [None, 0.5, None, 0.3]})
+        widget = CsvCompareWidget()
+        widget.load_csvs(folder, folder)
+        for row in range(widget.list_metrics.count()):
+            if widget.list_metrics.item(row).text().startswith("loss"):
+                widget.list_metrics.setCurrentRow(row)
+                break
+        ax = widget.figure.axes[0]
+        self.assertTrue(ax.lines)
+        for line in ax.lines:
+            ys = list(line.get_ydata())
+            self.assertFalse(any(math.isnan(v) for v in ys))
+            self.assertNotIn(0.0, ys)
+
     def test_load_csvs_and_change_metrics(self):
         widget = CsvCompareWidget()
         widget.load_csvs(self.folder_a, self.folder_b)
