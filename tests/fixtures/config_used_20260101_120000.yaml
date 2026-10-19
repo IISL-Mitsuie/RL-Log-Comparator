@@ -1,0 +1,38 @@
+# ==========================================
+# テスト用ダミー設定ファイル (config_used_*.yaml 形式)
+# 値はすべて架空のもの
+# ==========================================
+
+# メタ情報
+meta:
+  target_script: "dummy_rl_control.py"
+  description: "テスト用ダミーデータ"
+
+# 学習モード設定
+mode:
+  name: S-SAP                   # 学習モード (RL / S-SAP / Q-SAP)
+  use_shield: False             # 先頭大文字の真偽値表記も解釈できることを検証する
+
+# 実験設定
+experiment:
+  max_episodes: 100
+  max_steps: 200
+  goal_position: [1.0, 2.0, 0.0]
+  initial_position: [0.0, 0.0, 0.0]
+
+# 報酬設計
+reward:
+  reward_goal: 10.0
+  reward_step: -1.0
+
+# Q学習パラメータ
+qlearning:
+  alpha: 0.5
+  gamma: 0.9
+
+# 再利用知識設定
+policy:
+  all_policy: 2
+  files:
+    - "policy_dummy_0.npy"
+    - "policy_dummy_1.npy"

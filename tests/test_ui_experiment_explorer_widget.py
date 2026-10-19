@@ -182,13 +182,13 @@ def test_quick_filter(explorer_widget, tmp_path):
 
 
 def test_mode_and_shield_display_with_fixture_yaml(explorer_widget, tmp_path):
-    """tests/fixtures/config_used_20260909_145945.yaml 形式のデータでモードとShield表示を検証"""
+    """tests/fixtures/config_used_20260101_120000.yaml 形式のデータでモードとShield表示を検証"""
     import shutil
-    ref_yaml = os.path.join(os.path.dirname(__file__), "fixtures", "config_used_20260909_145945.yaml")
-    
-    exp_dir = tmp_path / "S-SAP" / "output_20260909_145945"
+    ref_yaml = os.path.join(os.path.dirname(__file__), "fixtures", "config_used_20260101_120000.yaml")
+
+    exp_dir = tmp_path / "S-SAP" / "output_20260101_120000"
     exp_dir.mkdir(parents=True)
-    shutil.copy(ref_yaml, exp_dir / "config_used_20260909_145945.yaml")
+    shutil.copy(ref_yaml, exp_dir / "config_used_20260101_120000.yaml")
 
     explorer_widget.set_root_directory(str(tmp_path))
     assert explorer_widget.table.rowCount() == 1
@@ -196,8 +196,8 @@ def test_mode_and_shield_display_with_fixture_yaml(explorer_widget, tmp_path):
     # モードが S-SAP、Shield が 無効 と表示されること
     assert explorer_widget.table.item(0, 0).text() == "S-SAP"
     assert explorer_widget.table.item(0, 1).text() == "無効"
-    assert explorer_widget.table.item(0, 3).text() == "output_20260909_145945"
-    assert "2026/09/09" in explorer_widget.table.item(0, 4).text()
+    assert explorer_widget.table.item(0, 3).text() == "output_20260101_120000"
+    assert "2026/01/01" in explorer_widget.table.item(0, 4).text()
 
 
 def test_toggle_sidebar(explorer_widget):
