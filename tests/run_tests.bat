@@ -6,7 +6,7 @@ echo ============================================================
 echo   RL-Log-Comparator Unit and Integration Tests
 echo ============================================================
 
-python -m unittest discover -s tests -p "test_*.py" -v
+python -m pytest -v
 if errorlevel 1 (
     echo.
     echo [ERROR] Some tests failed!

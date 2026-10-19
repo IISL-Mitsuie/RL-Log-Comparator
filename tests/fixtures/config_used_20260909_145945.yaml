@@ -1,0 +1,82 @@
+# ==========================================
+# Robotino RL Controller 設定ファイル
+# ==========================================
+
+# メタ情報
+meta:
+  target_script: "robotino_rl_control.py"
+  description: ""
+
+# 学習モード設定
+mode:
+  name: S-SAP                   # 学習モード (RL: 通常強化学習, S-SAP: S-SAP転移強化学習, Q-SAP: Q-SAP転移強化学習)
+  use_shield: False             # シールドを使用するかどうか (true/false)
+
+# 実験設定
+experiment:
+  enable_sap_visualizer: false  # SAP動的パラメータ可視化（GUI表示）の有効化
+  save_sap_log: true            # SAP動的パラメータログのファイル保存の有効化
+  max_episodes: 300             # 最大エピソード数
+  max_steps: 500                # 1エピソードあたりの最大ステップ数
+  goal_position: [11.0, 13.0, 0.2]  # ゴール位置 [X, Y, Z] (m)
+  # goal_position: [16.0, 8.0, 0.0]  # ゴール位置 [X, Y, Z] (m)
+  # goal_position: [11.0, 3.0, 0.0]  # ゴール位置 [X, Y, Z] (m)
+  initial_position: [4.0, 3.0, 0.0]  # 初期位置 [X, Y, Z] (m)
+
+# 報酬設計
+reward:
+  reward_goal: 100.0         # ゴール到達時の報酬
+  reward_collision: -50.0    # 壁衝突時のペナルティ
+  reward_step: -1.0          # 1ステップあたりのマイナス報酬 (最短経路誘導)
+  reward_near_wall: -0.5     # 壁に近づきすぎた時のペナルティ (LiDAR <= 0.5m)
+  reward_shaping_coeff: 10.0 # 距離変化（Reward Shaping）の係数
+  reward_shield_penalty: -20.0 # シールド介入時のペナルティ
+
+# Q学習パラメータ
+qlearning:
+  alpha: 0.1                 # 学習率
+  gamma: 0.99                # 割引率
+  tau: 0.05                  # ボルツマン選択の温度パラメータ
+  load_q_table: false        # 既存のQテーブルをロードするかどうか (True/False)
+  load_q_table_name: ""      # 特定のロード元Qテーブルファイル名 (空文字列の場合は最新を自動ロード)
+
+# SAP設定パラメータ
+sap:
+  activation: 0.15            # 活性化の初期値 (Activation)
+  threshold: 0.20            # 活性値の閾値 (Threshold)
+  attenuation: 0.95          # 減衰係数 (Attenuation)
+  freq_act: 5               # 知識選択を行う頻度 (Freqact)
+  freq_weight: 50           # 重み調整を行う頻度 (Freqweight)
+  first_weight: 2.0          # 重み行列の初期値 (Firstweight)
+  positive_adjustment: -0.10 # 正の転移の際の重み補正
+  negative_adjustment: 0.10  # 負の転移の際の重み補正
+  collision: -0.1            # 負の転移の際の活性ペナルティ
+  t_rate: 0.5                # 転移率 (T_RATE)
+
+# 再利用知識 (Qテーブル) 設定
+policy:
+  all_policy: 5             # 実際にロード・使用された知識ポリシー総数
+  reuse_policy_dir: "policies"  # 再利用ポリシー格納ディレクトリ
+  reuse_policy_prefix: ""   # ポリシーファイル接頭辞 (空文字 "" で接頭辞に関わらず全 *.npy をファイル名順に使用)
+  files:                    # 実際に使用されたポリシーファイル一覧 (上から順に Policy 0, 1, ...)
+    - "policy_20260720_203142.npy"
+    - "policy_20260720_203253.npy"
+    - "policy_20260720_204956.npy"
+    - "policy_20260720_205300.npy"
+    - "policy_20260902_113457.npy"
+
+
+# 制御パラメータ
+control:
+  move_speed: 0.1            # 移動速度 (m/s)
+  strafe_vx_correction: 0.055 # 左右移動時の前進方向の直進補正値 (m/s)
+  yaw_kp: 0.3                # 姿勢補正のPゲイン
+  move_distance: 0.1         # 1行動あたりの移動距離 d (m)
+
+# 状態空間・行動空間定義
+environment:
+  num_actions: 4             # 行動数 (0: 前進, 1: 後退, 2: 左, 3: 右)
+  min_dx: -8.0               # X方向相対座標の最小値
+  max_dx: 8.0                # X方向相対座標の最大値
+  min_dy: -3.0               # Y方向相対座標の最小値
+  max_dy: 3.0                # Y方向相対座標の最大値

@@ -4,7 +4,7 @@
 
 import os
 from typing import Optional
-from PySide6.QtCore import QSettings
+from src.core.settings import create_settings
 from src.config import (
     SETTINGS_ORG, SETTINGS_APP,
     SETTINGS_KEY_RECENT_FOLDERS,
@@ -26,7 +26,7 @@ class RecentFolderManager:
         max_count: int = MAX_HISTORY_COUNT,
         settings_key: str = SETTINGS_KEY_RECENT_FOLDERS,
     ):
-        self.settings = QSettings(org, app)
+        self.settings = create_settings(org, app)
         self.max_count = max_count
         self.settings_key = settings_key
 
@@ -82,7 +82,7 @@ class SessionStateManager:
     """アプリ終了時のパス保存および次回起動時の復元を行うセッション管理クラス"""
 
     def __init__(self, org: str = SETTINGS_ORG, app: str = SETTINGS_APP):
-        self.settings = QSettings(org, app)
+        self.settings = create_settings(org, app)
 
     def save_last_paths(
         self,
