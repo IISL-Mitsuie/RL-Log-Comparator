@@ -120,7 +120,7 @@ RL-Log-Comparator/
 
 ### 動作要件
 - **OS**: Windows 10 / 11 (x64)
-- **Python**: 3.10 以上 (Pythonスクリプトとして実行する場合)
+- **Python**: 3.12 以上 (Pythonスクリプトとして実行する場合)
 
 ---
 
@@ -133,7 +133,7 @@ RL-Log-Comparator/
 ---
 
 ### 3.2. Python 環境から直接起動する場合
-Python 3.10 以上がインストールされた環境で以下を実行します：
+Python 3.12 以上がインストールされた環境で以下を実行します：
 
 ```bash
 # 依存パッケージのインストール
@@ -183,7 +183,7 @@ python main.py path/to/output_A path/to/output_B
 本リポジトリには、PyInstaller による高速起動バイナリ作成と Inno Setup によるインストーラー作成を全自動で行うスクリプトが用意されています。
 
 ### 前提条件
-- Python 3.10 以上
+- Python 3.12 以上
 - [Inno Setup 6](https://jrsoftware.org/isdl.php)（Windows セットアップインストーラーを作成する場合）
 
 ### ビルド実行
