@@ -189,6 +189,8 @@ python -m pytest
 git config core.hooksPath .githooks
 ```
 
+* フックは Windows の Git（Git for Windows）から `cmd.exe` 経由で `check.bat` を実行します。WSL・macOS・Linux の git では動作しないため、有効にしないでください。
+* 検査するのは push するコミットではなく、作業ツリーのファイルです。コミットしていない変更がある状態では、結果が push 内容と一致しないことがあります。
 * 一時的にスキップする場合: `git push --no-verify`
 * 無効に戻す場合: `git config --unset core.hooksPath`
 * 本リポジトリは **CI（GitHub Actions などの外部サービス）を使わない方針**です。検査は上記のとおり手元で実行します。

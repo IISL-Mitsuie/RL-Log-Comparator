@@ -1,2 +1,4 @@
 # git フックは sh で実行されるため、改行コードを LF に固定する
 .githooks/* text eol=lf
+# LF のバッチファイルは goto やラベルが誤動作することがあるため、CRLF に固定する
+*.bat text eol=crlf

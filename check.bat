@@ -4,6 +4,13 @@ cd /d "%~dp0"
 set QT_QPA_PLATFORM=offscreen
 set PYTHONUTF8=1
 
+python -c "import ruff, pytest, pytestqt" >nul 2>&1
+if errorlevel 1 (
+    echo [NG] ruff / pytest / pytest-qt are not installed.
+    echo      Run: python -m pip install -r requirements-dev.txt
+    exit /b 1
+)
+
 echo [1/2] ruff check
 python -m ruff check src main.py src_bootstrap.py packaging tests
 if errorlevel 1 goto :fail
