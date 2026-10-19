@@ -25,9 +25,25 @@ class TestUiCsvCompareWidget(unittest.TestCase):
         self.folder_b = create_dummy_experiment_folder(
             self.test_dir, folder_name="folder_b", episodes=20
         )
+        self._clean_font_settings()
 
     def tearDown(self):
+        self._clean_font_settings()
         shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def _clean_font_settings(self):
+        from PySide6.QtCore import QSettings
+        from src.config import (
+            SETTINGS_ORG, SETTINGS_APP,
+            SETTINGS_KEY_CHART_FONT_LABEL, SETTINGS_KEY_CHART_FONT_TICKS,
+            SETTINGS_KEY_CHART_FONT_TITLE, SETTINGS_KEY_CHART_FONT_LEGEND
+        )
+        s = QSettings(SETTINGS_ORG, SETTINGS_APP)
+        s.remove(SETTINGS_KEY_CHART_FONT_LABEL)
+        s.remove(SETTINGS_KEY_CHART_FONT_TICKS)
+        s.remove(SETTINGS_KEY_CHART_FONT_TITLE)
+        s.remove(SETTINGS_KEY_CHART_FONT_LEGEND)
+
 
     def test_load_csvs_and_change_metrics(self):
         widget = CsvCompareWidget()
@@ -247,7 +263,69 @@ class TestUiCsvCompareWidget(unittest.TestCase):
             self.assertNotEqual(widget.txt_title.text(), "手動で変更したタイトル")
             self.assertTrue(widget.txt_title.text().startswith("学習推移比較:"))
 
+    def test_chart_font_size_customization_and_reset(self):
+        """フォントサイズ変更（軸ラベル・軸数値・タイトル・凡例）、リセット、永続化、高DPI設定の検証"""
+        import matplotlib.pyplot as plt
+        from src.config import (
+            DEFAULT_CHART_FONT_LABEL, DEFAULT_CHART_FONT_TICKS,
+            DEFAULT_CHART_FONT_TITLE, DEFAULT_CHART_FONT_LEGEND
+        )
+
+        widget = CsvCompareWidget()
+        widget.load_csvs(self.folder_a, self.folder_b)
+
+        # 1. 初期値の確認
+        self.assertEqual(widget.spin_font_label.value(), DEFAULT_CHART_FONT_LABEL)
+        self.assertEqual(widget.spin_font_ticks.value(), DEFAULT_CHART_FONT_TICKS)
+        self.assertEqual(widget.spin_font_title.value(), DEFAULT_CHART_FONT_TITLE)
+        self.assertEqual(widget.spin_font_legend.value(), DEFAULT_CHART_FONT_LEGEND)
+
+        # 2. フォントサイズ変更（リアルタイム反映）
+        widget.spin_font_label.setValue(16)
+        widget.spin_font_ticks.setValue(14)
+        widget.spin_font_title.setValue(18)
+        widget.spin_font_legend.setValue(13)
+
+        ax = widget.figure.axes[0]
+        self.assertEqual(ax.xaxis.label.get_fontsize(), 16)
+        self.assertEqual(ax.yaxis.label.get_fontsize(), 16)
+        self.assertEqual(ax.title.get_fontsize(), 18)
+        if ax.get_legend():
+            for text in ax.get_legend().get_texts():
+                self.assertEqual(text.get_fontsize(), 13)
+
+        # 3. 指標を変更してもフォントサイズが維持されることを確認
+        if widget.list_metrics.count() > 1:
+            widget.list_metrics.setCurrentRow(1)
+            self.assertEqual(widget.spin_font_label.value(), 16)
+            self.assertEqual(widget.spin_font_ticks.value(), 14)
+            self.assertEqual(widget.spin_font_title.value(), 18)
+            self.assertEqual(widget.spin_font_legend.value(), 13)
+
+        # 4. 「すべてデフォルトに戻す」ボタンで初期値に復帰
+        widget.btn_reset_texts.click()
+        self.assertEqual(widget.spin_font_label.value(), DEFAULT_CHART_FONT_LABEL)
+        self.assertEqual(widget.spin_font_ticks.value(), DEFAULT_CHART_FONT_TICKS)
+        self.assertEqual(widget.spin_font_title.value(), DEFAULT_CHART_FONT_TITLE)
+        self.assertEqual(widget.spin_font_legend.value(), DEFAULT_CHART_FONT_LEGEND)
+
+        ax = widget.figure.axes[0]
+        self.assertEqual(ax.xaxis.label.get_fontsize(), DEFAULT_CHART_FONT_LABEL)
+        self.assertEqual(ax.yaxis.label.get_fontsize(), DEFAULT_CHART_FONT_LABEL)
+        self.assertEqual(ax.title.get_fontsize(), DEFAULT_CHART_FONT_TITLE)
+
+        # 5. QSettings 永続化の確認
+        widget.spin_font_label.setValue(20)
+        widget2 = CsvCompareWidget()
+        self.assertEqual(widget2.spin_font_label.value(), 20)
+        # テスト後にデフォルトへ戻す
+        widget2.btn_reset_texts.click()
+
+        # 6. 保存時解像度 (savefig.dpi) が 300 であることの確認
+        self.assertEqual(plt.rcParams['savefig.dpi'], 300)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

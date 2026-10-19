@@ -8,19 +8,32 @@ from typing import Optional
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QGroupBox,
     QListWidget, QListWidgetItem, QSlider, QLabel, QCheckBox, QComboBox,
-    QLineEdit, QPushButton
+    QLineEdit, QPushButton, QSpinBox
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSettings
 
+import matplotlib as mpl
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
 
+# グラフ保存時の高精細解像度 (300 DPI) 設定
+mpl.rcParams['savefig.dpi'] = 300
+
+
+from src.config import (
+    SETTINGS_ORG, SETTINGS_APP,
+    SETTINGS_KEY_CHART_FONT_LABEL, SETTINGS_KEY_CHART_FONT_TICKS,
+    SETTINGS_KEY_CHART_FONT_TITLE, SETTINGS_KEY_CHART_FONT_LEGEND,
+    DEFAULT_CHART_FONT_LABEL, DEFAULT_CHART_FONT_TICKS,
+    DEFAULT_CHART_FONT_TITLE, DEFAULT_CHART_FONT_LEGEND
+)
 from src.core.parsers.experiment import get_experiment_info
 from src.core.parsers.csv_metric import (
     read_log_csv, compute_metric_series, get_available_tasks,
     get_available_metrics, METRIC_DEFINITIONS, TaskOption,
     scan_task_options, load_task_dataframe
 )
+
 
 
 class CsvCompareWidget(QWidget):
@@ -104,8 +117,8 @@ class CsvCompareWidget(QWidget):
         self.lbl_ma_val = QLabel("10 ep")
         left_lay.addWidget(self.lbl_ma_val)
 
-        # 4. グラフテキスト設定 (タイトル・軸・凡例)
-        text_box = QGroupBox("グラフテキスト設定 (タイトル・軸・凡例)")
+        # 4. グラフテキスト・フォント設定 (タイトル・軸・凡例・文字サイズ)
+        text_box = QGroupBox("グラフテキスト・フォント設定")
         text_lay = QVBoxLayout(text_box)
         text_lay.setSpacing(5)
 
@@ -159,8 +172,56 @@ class CsvCompareWidget(QWidget):
         lay_leg_b.addWidget(self.txt_legend_b)
         text_lay.addLayout(lay_leg_b)
 
+        # フォントサイズ設定 (pt)
+        lbl_font_header = QLabel("フォントサイズ (pt):")
+        text_lay.addWidget(lbl_font_header)
+
+        lay_font_row1 = QHBoxLayout()
+        lbl_font_label = QLabel("軸ラベル:")
+        lbl_font_label.setFixedWidth(52)
+        lay_font_row1.addWidget(lbl_font_label)
+        self.spin_font_label = QSpinBox()
+        self.spin_font_label.setRange(6, 28)
+        self.spin_font_label.setValue(DEFAULT_CHART_FONT_LABEL)
+        self.spin_font_label.setToolTip("X軸・Y軸ラベルのフォントサイズ (pt)")
+        self.spin_font_label.valueChanged.connect(self._on_font_size_changed)
+        lay_font_row1.addWidget(self.spin_font_label)
+
+        lbl_font_ticks = QLabel("軸数値:")
+        lbl_font_ticks.setFixedWidth(44)
+        lay_font_row1.addWidget(lbl_font_ticks)
+        self.spin_font_ticks = QSpinBox()
+        self.spin_font_ticks.setRange(6, 28)
+        self.spin_font_ticks.setValue(DEFAULT_CHART_FONT_TICKS)
+        self.spin_font_ticks.setToolTip("軸目盛り数値のフォントサイズ (pt)")
+        self.spin_font_ticks.valueChanged.connect(self._on_font_size_changed)
+        lay_font_row1.addWidget(self.spin_font_ticks)
+        text_lay.addLayout(lay_font_row1)
+
+        lay_font_row2 = QHBoxLayout()
+        lbl_font_title = QLabel("タイトル:")
+        lbl_font_title.setFixedWidth(52)
+        lay_font_row2.addWidget(lbl_font_title)
+        self.spin_font_title = QSpinBox()
+        self.spin_font_title.setRange(6, 28)
+        self.spin_font_title.setValue(DEFAULT_CHART_FONT_TITLE)
+        self.spin_font_title.setToolTip("グラフタイトルのフォントサイズ (pt)")
+        self.spin_font_title.valueChanged.connect(self._on_font_size_changed)
+        lay_font_row2.addWidget(self.spin_font_title)
+
+        lbl_font_legend = QLabel("凡例:")
+        lbl_font_legend.setFixedWidth(44)
+        lay_font_row2.addWidget(lbl_font_legend)
+        self.spin_font_legend = QSpinBox()
+        self.spin_font_legend.setRange(6, 28)
+        self.spin_font_legend.setValue(DEFAULT_CHART_FONT_LEGEND)
+        self.spin_font_legend.setToolTip("凡例のフォントサイズ (pt)")
+        self.spin_font_legend.valueChanged.connect(self._on_font_size_changed)
+        lay_font_row2.addWidget(self.spin_font_legend)
+        text_lay.addLayout(lay_font_row2)
+
         self.btn_reset_texts = QPushButton("🔄 すべてデフォルトに戻す")
-        self.btn_reset_texts.setToolTip("タイトル・軸ラベル・凡例をデフォルト設定に戻します")
+        self.btn_reset_texts.setToolTip("タイトル・軸ラベル・凡例およびフォントサイズをデフォルト設定に戻します")
         self.btn_reset_texts.clicked.connect(self._reset_all_custom_texts)
         text_lay.addWidget(self.btn_reset_texts)
 
@@ -204,6 +265,7 @@ class CsvCompareWidget(QWidget):
         main_layout.addWidget(self.main_splitter)
 
         self.list_metrics.setCurrentRow(0)
+        self._load_chart_font_settings()
 
     def _on_ma_changed(self, val: int) -> None:
         self.lbl_ma_val.setText(f"{val} ep")
@@ -217,14 +279,86 @@ class CsvCompareWidget(QWidget):
         """後方互換: 凡例テキスト変更時のリアルタイム再描画"""
         self._on_custom_text_changed(text)
 
+    def _on_font_size_changed(self, val: int = 0) -> None:
+        """フォントサイズ変更時のリアルタイム再描画および設定保存"""
+        self._save_chart_font_settings()
+        self.update_chart()
+
+    def _load_chart_font_settings(self) -> None:
+        """QSettings からフォントサイズ設定を読み込み"""
+        settings = QSettings(SETTINGS_ORG, SETTINGS_APP)
+        try:
+            font_label = int(settings.value(SETTINGS_KEY_CHART_FONT_LABEL, DEFAULT_CHART_FONT_LABEL))
+        except (ValueError, TypeError):
+            font_label = DEFAULT_CHART_FONT_LABEL
+        try:
+            font_ticks = int(settings.value(SETTINGS_KEY_CHART_FONT_TICKS, DEFAULT_CHART_FONT_TICKS))
+        except (ValueError, TypeError):
+            font_ticks = DEFAULT_CHART_FONT_TICKS
+        try:
+            font_title = int(settings.value(SETTINGS_KEY_CHART_FONT_TITLE, DEFAULT_CHART_FONT_TITLE))
+        except (ValueError, TypeError):
+            font_title = DEFAULT_CHART_FONT_TITLE
+        try:
+            font_legend = int(settings.value(SETTINGS_KEY_CHART_FONT_LEGEND, DEFAULT_CHART_FONT_LEGEND))
+        except (ValueError, TypeError):
+            font_legend = DEFAULT_CHART_FONT_LEGEND
+
+        if hasattr(self, 'spin_font_label'):
+            self.spin_font_label.blockSignals(True)
+            self.spin_font_label.setValue(font_label)
+            self.spin_font_label.blockSignals(False)
+        if hasattr(self, 'spin_font_ticks'):
+            self.spin_font_ticks.blockSignals(True)
+            self.spin_font_ticks.setValue(font_ticks)
+            self.spin_font_ticks.blockSignals(False)
+        if hasattr(self, 'spin_font_title'):
+            self.spin_font_title.blockSignals(True)
+            self.spin_font_title.setValue(font_title)
+            self.spin_font_title.blockSignals(False)
+        if hasattr(self, 'spin_font_legend'):
+            self.spin_font_legend.blockSignals(True)
+            self.spin_font_legend.setValue(font_legend)
+            self.spin_font_legend.blockSignals(False)
+
+    def _save_chart_font_settings(self) -> None:
+        """フォントサイズ設定を QSettings に保存"""
+        settings = QSettings(SETTINGS_ORG, SETTINGS_APP)
+        if hasattr(self, 'spin_font_label'):
+            settings.setValue(SETTINGS_KEY_CHART_FONT_LABEL, self.spin_font_label.value())
+        if hasattr(self, 'spin_font_ticks'):
+            settings.setValue(SETTINGS_KEY_CHART_FONT_TICKS, self.spin_font_ticks.value())
+        if hasattr(self, 'spin_font_title'):
+            settings.setValue(SETTINGS_KEY_CHART_FONT_TITLE, self.spin_font_title.value())
+        if hasattr(self, 'spin_font_legend'):
+            settings.setValue(SETTINGS_KEY_CHART_FONT_LEGEND, self.spin_font_legend.value())
+
     def _reset_all_custom_texts(self) -> None:
-        """すべてのテキスト入力（タイトル・軸・凡例）をデフォルトに戻す"""
+        """すべてのテキスト入力（タイトル・軸・凡例）およびフォントサイズをデフォルトに戻す"""
         self._need_reset_texts = True
+        if hasattr(self, 'spin_font_label'):
+            self.spin_font_label.blockSignals(True)
+            self.spin_font_label.setValue(DEFAULT_CHART_FONT_LABEL)
+            self.spin_font_label.blockSignals(False)
+        if hasattr(self, 'spin_font_ticks'):
+            self.spin_font_ticks.blockSignals(True)
+            self.spin_font_ticks.setValue(DEFAULT_CHART_FONT_TICKS)
+            self.spin_font_ticks.blockSignals(False)
+        if hasattr(self, 'spin_font_title'):
+            self.spin_font_title.blockSignals(True)
+            self.spin_font_title.setValue(DEFAULT_CHART_FONT_TITLE)
+            self.spin_font_title.blockSignals(False)
+        if hasattr(self, 'spin_font_legend'):
+            self.spin_font_legend.blockSignals(True)
+            self.spin_font_legend.setValue(DEFAULT_CHART_FONT_LEGEND)
+            self.spin_font_legend.blockSignals(False)
+        self._save_chart_font_settings()
         self.update_chart()
 
     def _reset_custom_legends(self) -> None:
         """後方互換用: デフォルトに戻す"""
         self._reset_all_custom_texts()
+
 
     def _on_metric_changed(self, row: int) -> None:
         """指標変更時（質問2: 案B - すべてデフォルトに自動リセット）"""
@@ -542,6 +676,12 @@ class CsvCompareWidget(QWidget):
         elif not data_a.has_data and data_b.has_data:
             ax.plot([], [], ' ', label="A: [該当列なし]")
 
+        # フォントサイズ設定の取得
+        font_label = self.spin_font_label.value() if hasattr(self, 'spin_font_label') else DEFAULT_CHART_FONT_LABEL
+        font_ticks = self.spin_font_ticks.value() if hasattr(self, 'spin_font_ticks') else DEFAULT_CHART_FONT_TICKS
+        font_title = self.spin_font_title.value() if hasattr(self, 'spin_font_title') else DEFAULT_CHART_FONT_TITLE
+        font_legend = self.spin_font_legend.value() if hasattr(self, 'spin_font_legend') else DEFAULT_CHART_FONT_LEGEND
+
         # タスク境界線の描画 (縦破線: 通常モードの全タスク統合時のみ)
         if show_boundaries:
             boundaries = data_a.task_boundaries if data_a.task_boundaries else data_b.task_boundaries
@@ -550,26 +690,27 @@ class CsvCompareWidget(QWidget):
                 ax.text(
                     ep_b + 1, 0.98, f" {label_b}",
                     transform=ax.get_xaxis_transform(),
-                    color="#555555", fontsize=9, fontweight='bold',
+                    color="#555555", fontsize=max(6, font_ticks - 1), fontweight='bold',
                     verticalalignment='top', alpha=0.9
                 )
 
-        ax.set_xlabel(x_label, fontsize=11, color='#222222', labelpad=6)
-        ax.set_ylabel(y_label, fontsize=11, color='#222222', labelpad=6)
-        ax.set_title(chart_title, fontsize=12, fontweight='bold', color='#222222', pad=10)
+        ax.set_xlabel(x_label, fontsize=font_label, color='#222222', labelpad=6)
+        ax.set_ylabel(y_label, fontsize=font_label, color='#222222', labelpad=6)
+        ax.set_title(chart_title, fontsize=font_title, fontweight='bold', color='#222222', pad=10)
         ax.grid(True, linestyle="--", alpha=0.6, color='#cccccc')
-        ax.tick_params(colors='#333333', labelsize=10)
+        ax.tick_params(colors='#333333', labelsize=font_ticks)
         for spine in ax.spines.values():
             spine.set_color('#888888')
 
         if has_plot:
-            legend = ax.legend(loc="best", framealpha=0.9, facecolor='#ffffff', edgecolor='#cccccc', fontsize=10)
+            legend = ax.legend(loc="best", framealpha=0.9, facecolor='#ffffff', edgecolor='#cccccc', fontsize=font_legend)
             for text in legend.get_texts():
                 text.set_color('#222222')
         else:
             ax.text(0.5, 0.5, "比較対象の CSV データが存在しません",
                     horizontalalignment='center', verticalalignment='center',
-                    transform=ax.transAxes, fontsize=14, color='#666666')
+                    transform=ax.transAxes, fontsize=max(10, font_title), color='#666666')
+
 
         try:
             self.figure.tight_layout(pad=1.2)
