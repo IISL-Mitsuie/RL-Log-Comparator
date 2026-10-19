@@ -34,12 +34,22 @@ experiments/                      <-- 実験保存ルート
 ## 2. 数値ログ (CSV) の最小仕様
 - **ファイル名**: フォルダ内に任意の `*.csv` が1つ以上（`learning_log_*.csv` または最初の `.csv` を自動認識）。
 - **ヘッダー行**: 1行目にカラム名を含むカンマ区切り形式。
+- **文字コード**: UTF-8（BOM 付きを含む）。読めない場合は Shift_JIS (cp932) として読み込みます。
 - **X軸（横軸）**: 
-  - `Episode`, `Total_Episode`, `step`, `epoch`, `iteration` 等の列があればそれをX軸として使用。
+  - 次の列を上から順に探し、最初に見つかった数値の列をX軸として使用します（列名の大文字小文字は無視）。
+    1. `Episode`
+    2. `Total_Episode`
+    3. `episodes`
+    4. `global_step`, `timesteps`, `step`
+    5. `epoch`, `epochs`
+    6. `iteration`, `iterations`
   - いずれの列も存在しない場合は、**「行番号（1, 2, 3...）」が自動的にエピソード番号**として補完されます。
+  - X軸ラベルの既定値は、使用した列に合わせて「Total Episode」「Step (step)」「Row Index (行番号)」などになります。A と B で X軸の種類が異なる場合は、両方のラベルを併記し、グラフ内に注記を表示します。
+  - X軸に使用した列は、指標の一覧には表示されません。
 - **Y軸（指標）の自動検出と自由プロット**:
   - CSVに含まれるすべての数値列（`loss`, `critic_loss`, `actor_loss`, `entropy`, `q_value`, `epsilon` 等）を自動抽出し、ドロップダウンで自由に選択・移動平均重ね合わせ比較できます。
   - 片方の実験CSVにしか存在しない指標列（例: Aのみ `actor_loss` がある等）でも、エラーを起こさず片側のみ安全にプロットされます。
+  - 空欄（欠損値）は 0 として扱わず、その点を描画しません。移動平均は記録された値だけで計算します（`loss` を数ステップおきにしか記録しない CSV でも、値が 0 に引きずられません）。
 
 ### 主要指標のエイリアス（表記ゆれ自動認識）
 以下のカラム名が含まれている場合、アプリ起動時に主要指標として最上部に優先表示されます：
@@ -47,8 +57,10 @@ experiments/                      <-- 実験保存ルート
 | 指標 | 対応する列名エイリアス（大文字小文字無視） |
 | :--- | :--- |
 | **報酬 (Reward)** | `TotalReward`, `reward`, `episode_reward`, `total_reward`, `return`, `r`, `ep_rew_mean` |
-| **ステップ数 (Steps)** | `Steps`, `steps`, `episode_length`, `episode_steps`, `length`, `step`, `l`, `ep_len_mean` |
-| **成功率 (Success Rate)** | `Result` (`'Goal'` 判定), `success`, `is_success`, `success_rate` (0/1 または bool) |
+| **ステップ数 (Steps)** | `Steps`, `steps`, `episode_length`, `episode_steps`, `length`, `l`, `ep_len_mean` |
+| **成功率 (Success Rate)** | `Result` (`'Goal'` 判定。大文字小文字・前後の空白は無視), `success`, `is_success`, `success_rate` (0/1 または bool) |
+
+> `step` は「累積の環境ステップ数」としてX軸に使用するため、ステップ数（エピソード長）の指標には含めません。
 
 ### 最小限の CSV 例 (`progress.csv`)
 ```csv

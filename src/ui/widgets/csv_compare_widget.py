@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 
+import numpy as np
 import matplotlib as mpl
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
@@ -30,9 +31,16 @@ from src.core.settings import create_settings
 from src.core.parsers.experiment import get_experiment_info
 from src.core.parsers.csv_metric import (
     read_log_csv, compute_metric_series, get_available_metrics, TaskOption,
-    scan_task_options, load_task_dataframe
+    scan_task_options, load_task_dataframe, EPISODE_X_LABEL
 )
 
+
+def _drop_nan(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """値が記録されていない (NaN) 点を除外する（記録された点同士を線で結ぶため）"""
+    x = np.asarray(x)
+    y = np.asarray(y, dtype=float)
+    mask = ~np.isnan(y)
+    return x[mask], y[mask]
 
 
 class CsvCompareWidget(QWidget):
@@ -537,6 +545,7 @@ class CsvCompareWidget(QWidget):
         show_raw = self.cb_raw_data.isChecked()
         is_independent = self.cb_independent_tasks.isChecked()
         title_metric_name = item.text() if item else ""
+        x_axis_mismatch = False
 
         if is_independent:
             # --- A/B 個別タスク選択モード ---
@@ -579,7 +588,18 @@ class CsvCompareWidget(QWidget):
             if task_id > 0:
                 default_x_label = f"Task Episode (Task {task_id} 内エピソード [1..N])"
             else:
-                default_x_label = "Total Episode (通算エピソード)"
+                # データがある側の X 軸ラベルを優先する
+                if data_a.has_data or not data_b.has_data:
+                    default_x_label = data_a.x_label or data_b.x_label or EPISODE_X_LABEL
+                else:
+                    default_x_label = data_b.x_label or EPISODE_X_LABEL
+                # A と B で X 軸の種類（エピソード / ステップ等）が異なる場合は両方を示す
+                x_axis_mismatch = bool(
+                    data_a.has_data and data_b.has_data
+                    and data_a.x_kind and data_b.x_kind and data_a.x_kind != data_b.x_kind
+                )
+                if x_axis_mismatch:
+                    default_x_label = f"A: {data_a.x_label} / B: {data_b.x_label}"
             default_chart_title = f"学習推移比較: {title_metric_name}"
 
         default_y_label = data_a.y_label or data_b.y_label or "Value"
@@ -638,9 +658,9 @@ class CsvCompareWidget(QWidget):
         # A系列のプロット (青系統)
         if data_a.has_data and data_a.x is not None:
             if show_raw and data_a.y_raw is not None:
-                ax.plot(data_a.x, data_a.y_raw, color="#4a90e2", alpha=0.25, linewidth=1.0)
+                ax.plot(*_drop_nan(data_a.x, data_a.y_raw), color="#4a90e2", alpha=0.25, linewidth=1.0)
             if data_a.y_ma is not None:
-                ax.plot(data_a.x, data_a.y_ma, label=legend_label_a, color="#0055ff", linewidth=2.0)
+                ax.plot(*_drop_nan(data_a.x, data_a.y_ma), label=legend_label_a, color="#0055ff", linewidth=2.0)
                 has_plot = True
 
             # Aの収束ポイント描画 (★マーカー)
@@ -655,9 +675,9 @@ class CsvCompareWidget(QWidget):
         # B系列のプロット (赤系統)
         if data_b.has_data and data_b.x is not None:
             if show_raw and data_b.y_raw is not None:
-                ax.plot(data_b.x, data_b.y_raw, color="#e74c3c", alpha=0.25, linewidth=1.0)
+                ax.plot(*_drop_nan(data_b.x, data_b.y_raw), color="#e74c3c", alpha=0.25, linewidth=1.0)
             if data_b.y_ma is not None:
-                ax.plot(data_b.x, data_b.y_ma, label=legend_label_b, color="#cc0000", linewidth=2.0)
+                ax.plot(*_drop_nan(data_b.x, data_b.y_ma), label=legend_label_b, color="#cc0000", linewidth=2.0)
                 has_plot = True
 
             # Bの収束ポイント描画 (★マーカー)
@@ -705,6 +725,10 @@ class CsvCompareWidget(QWidget):
             legend = ax.legend(loc="best", framealpha=0.9, facecolor='#ffffff', edgecolor='#cccccc', fontsize=font_legend)
             for text in legend.get_texts():
                 text.set_color('#222222')
+            if x_axis_mismatch:
+                ax.text(0.99, 0.01, "※ X 軸の単位が A/B で異なります",
+                        horizontalalignment='right', verticalalignment='bottom',
+                        transform=ax.transAxes, fontsize=max(6, font_legend - 1), color='#aa5500')
         else:
             ax.text(0.5, 0.5, "比較対象の CSV データが存在しません",
                     horizontalalignment='center', verticalalignment='center',
