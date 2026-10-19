@@ -20,8 +20,8 @@ def test_create_settings_uses_native_without_env(monkeypatch):
     """環境変数が設定されていない場合はネイティブ形式（Windows ではレジストリ）を返す"""
     monkeypatch.delenv(SETTINGS_FILE_ENV, raising=False)
 
-    # 生成するだけで読み書きはしない（本番設定に触れない）
-    settings = create_settings()
+    # 本番と別の org/app で生成するだけで、読み書きはしない
+    settings = create_settings("IISL_Test", "RL_Test_Settings")
     assert settings.format() == QSettings.Format.NativeFormat
 
 
