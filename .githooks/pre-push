@@ -1,0 +1,4 @@
+#!/bin/sh
+# push 前に ruff と pytest を実行する。失敗したら push を中止する。
+# 一時的にスキップする場合: git push --no-verify
+cmd.exe //c check.bat

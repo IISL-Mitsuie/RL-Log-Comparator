@@ -3,7 +3,6 @@
 """
 
 import os
-import webbrowser
 from typing import Optional
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -11,7 +10,7 @@ from PySide6.QtWidgets import (
     QFileDialog, QMessageBox
 )
 from PySide6.QtGui import QIcon
-from PySide6.QtCore import QTimer, QObject, Signal
+from PySide6.QtCore import QObject, Signal
 
 
 from src.config import (
@@ -21,7 +20,7 @@ from src.config import (
 )
 from src.core.paths import get_app_icon_path
 from src.core.history import RecentFolderManager, SessionStateManager
-from src.core.updater import check_for_updates_async, fetch_latest_release_info, UpdateInfo
+from src.core.updater import fetch_latest_release_info, UpdateInfo
 from src.ui.dialogs.update_dialog import UpdateDialog
 from src.ui.widgets.yaml_diff_widget import YamlDiffWidget
 from src.ui.widgets.image_compare_widget import ImageCompareWidget

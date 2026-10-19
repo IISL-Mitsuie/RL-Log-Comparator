@@ -169,7 +169,7 @@ class TestUpdater(unittest.TestCase):
                 received_info.append(info)
                 done_event.set()
 
-            thread = check_for_updates_async(
+            check_for_updates_async(
                 repo_owner="IISL-Mitsuie",
                 repo_name="RL-Log-Comparator",
                 current_version="1.0.0",

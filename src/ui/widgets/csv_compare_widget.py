@@ -29,8 +29,7 @@ from src.config import (
 from src.core.settings import create_settings
 from src.core.parsers.experiment import get_experiment_info
 from src.core.parsers.csv_metric import (
-    read_log_csv, compute_metric_series, get_available_tasks,
-    get_available_metrics, METRIC_DEFINITIONS, TaskOption,
+    read_log_csv, compute_metric_series, get_available_metrics, TaskOption,
     scan_task_options, load_task_dataframe
 )
 

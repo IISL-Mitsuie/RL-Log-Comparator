@@ -7,7 +7,7 @@ from enum import Enum, auto
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QGroupBox
 )
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
 
 from src.core.parsers.experiment_scanner import ExperimentLogRecord

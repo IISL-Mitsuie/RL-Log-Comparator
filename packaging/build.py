@@ -88,7 +88,6 @@ def main():
     legacy_build = root_dir / "build"
     dist_dir = root_dir / "dist"
     installer_output_dir = root_dir / "dist_installer"
-    requirements_file = root_dir / "requirements.txt"
     spec_file = root_dir / "packaging" / "RL-Log-Comparator.spec"
     iss_file = root_dir / "packaging" / "installer.iss"
 

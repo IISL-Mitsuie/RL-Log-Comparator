@@ -14,7 +14,7 @@ from PySide6.QtCore import Qt
 
 from src.core.parsers.experiment import get_experiment_info
 from src.core.parsers.image_pair import (
-    detect_image_pairs, ImagePairItem, get_folder_image_list
+    detect_image_pairs, get_folder_image_list
 )
 from src.ui.widgets.sync_graphics_view import SyncGraphicsView
 

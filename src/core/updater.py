@@ -12,7 +12,7 @@ import urllib.error
 import subprocess
 import tempfile
 import threading
-from typing import Optional, Callable, Dict, Any, Tuple
+from typing import Optional, Callable, Tuple
 from dataclasses import dataclass
 
 GITHUB_API_LATEST_RELEASE_URL = "https://api.github.com/repos/{owner}/{repo}/releases/latest"

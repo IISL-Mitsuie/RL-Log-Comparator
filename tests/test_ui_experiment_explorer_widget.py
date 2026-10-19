@@ -7,7 +7,6 @@ import pytest
 from PySide6.QtCore import Qt, QPoint, QPointF
 from PySide6.QtGui import QWheelEvent
 from src.ui.widgets.experiment_explorer_widget import ExperimentExplorerWidget
-from src.ui.dialogs.experiment_action_dialog import ExperimentActionDialog, ExperimentAction
 from tests.helpers import get_qapp, create_dummy_experiment_folder
 
 
@@ -43,8 +42,8 @@ def test_widget_init(explorer_widget):
 def test_scan_and_populate_table(explorer_widget, tmp_path):
     s_sap_dir = tmp_path / "S-SAP"
     s_sap_dir.mkdir()
-    folder1 = create_dummy_experiment_folder(str(s_sap_dir), "output_20260801_100000", mode="S-SAP", learning_rate=0.01)
-    folder2 = create_dummy_experiment_folder(str(s_sap_dir), "output_20260802_150000", mode="S-SAP", learning_rate=0.02)
+    create_dummy_experiment_folder(str(s_sap_dir), "output_20260801_100000", mode="S-SAP", learning_rate=0.01)
+    create_dummy_experiment_folder(str(s_sap_dir), "output_20260802_150000", mode="S-SAP", learning_rate=0.02)
 
     explorer_widget.set_root_directory(str(tmp_path))
 
