@@ -156,7 +156,7 @@ python main.py path/to/output_A path/to/output_B
 ---
 
 ### 3.3. 開発者向け: テストの実行
-開発用の依存パッケージ（pytest, pytest-qt）をインストールしてからテストを実行します：
+開発用の依存パッケージ（pytest, pytest-qt, ruff）をインストールしてからテストを実行します：
 
 ```bash
 # 開発用依存パッケージのインストール (requirements.txt も併せてインストールされます)
@@ -168,7 +168,32 @@ python -m pytest
 
 * Windows では [`tests/run_tests.bat`](tests/run_tests.bat) からも実行できます。
 * テスト実行中のアプリ設定（フォルダ履歴・フォントサイズ等）は一時 INI ファイルに保存され、通常利用時の設定（レジストリ）は読み書きされません。
-* 開発用依存パッケージ定義: [`requirements-dev.txt`](requirements-dev.txt)、pytest 設定: [`pyproject.toml`](pyproject.toml)
+* 開発用依存パッケージ定義: [`requirements-dev.txt`](requirements-dev.txt)、pytest・ruff 設定: [`pyproject.toml`](pyproject.toml)
+
+#### 品質チェック（`check.bat`）
+変更をプッシュする前に、リポジトリ直下の [`check.bat`](check.bat) で静的解析とテストをまとめて実行します：
+
+```bat
+.\check.bat
+```
+
+1. **ruff**（`python -m ruff check src main.py src_bootstrap.py packaging tests`）: 未使用の import・未定義の名前・構文エラーを検出します（有効な規則は `F` と `E9`）。
+2. **pytest**（`python -m pytest -q`）: 全テストを実行します。`QT_QPA_PLATFORM=offscreen` を設定するため、テスト中にウィンドウは表示されません。
+
+すべて成功すると終了コード 0（`[OK] all checks passed`）、いずれかが失敗すると終了コード 1（`[NG] checks failed`）で終了します。
+
+#### 任意: push 前の自動チェック（pre-push フック）
+次のコマンドを一度実行すると、`git push` の前に `check.bat` が自動で実行され、失敗した場合は push が中止されます（有効化は任意です。設定しなくても通常どおり commit・push できます）：
+
+```bash
+git config core.hooksPath .githooks
+```
+
+* フックは Windows の Git（Git for Windows）から `cmd.exe` 経由で `check.bat` を実行します。WSL・macOS・Linux の git では動作しないため、有効にしないでください。
+* 検査するのは push するコミットではなく、作業ツリーのファイルです。コミットしていない変更がある状態では、結果が push 内容と一致しないことがあります。
+* 一時的にスキップする場合: `git push --no-verify`
+* 無効に戻す場合: `git config --unset core.hooksPath`
+* 本リポジトリは **CI（GitHub Actions などの外部サービス）を使わない方針**です。検査は上記のとおり手元で実行します。
 
 ---
 

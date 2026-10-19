@@ -2,3 +2,11 @@
 testpaths = ["tests"]
 qt_api = "pyside6"
 addopts = "-ra"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+extend-exclude = ["reference", "sample_logs", "log_AI-output", "dist", "dist_installer"]
+
+[tool.ruff.lint]
+select = ["F", "E9"]

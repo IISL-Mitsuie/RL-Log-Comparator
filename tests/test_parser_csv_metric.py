@@ -8,7 +8,7 @@ import tempfile
 import shutil
 import pandas as pd
 from src.core.parsers.csv_metric import (
-    read_log_csv, compute_metric_series, METRIC_DEFINITIONS, MetricSeriesData
+    read_log_csv, compute_metric_series
 )
 from tests.helpers import create_dummy_experiment_folder
 
@@ -159,7 +159,6 @@ class TestParserCsvMetric(unittest.TestCase):
         # 3. 指標一覧生成 (案A: グループ化)
         metrics = get_available_metrics(df, None)
         keys = [m.key for m in metrics]
-        categories = [m.category for m in metrics]
 
         # 主要指標として報酬・ステップが含まれる
         self.assertIn("__reward__", keys)
@@ -207,7 +206,7 @@ class TestParserCsvMetric(unittest.TestCase):
 
     def test_scan_task_options_and_load_task_dataframe(self):
         """個別タスクCSVファイル群からのタスク検出とDataFrameロードのテスト"""
-        from src.core.parsers.csv_metric import scan_task_options, load_task_dataframe, TaskOption
+        from src.core.parsers.csv_metric import scan_task_options, load_task_dataframe
         folder = os.path.join(self.test_dir, "task_csv_folder")
         os.makedirs(folder, exist_ok=True)
 

@@ -3,13 +3,11 @@
 """
 
 import os
-import glob
 import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
-import yaml
 
-from src.core.parsers.image_pair import extract_prefix, select_latest_image, get_folder_images_dict
+from src.core.parsers.image_pair import select_latest_image, get_folder_images_dict
 from src.core.parsers.safe_yaml import safe_load_yaml, find_config_file
 from src.core.parsers.csv_metric import find_log_csv
 

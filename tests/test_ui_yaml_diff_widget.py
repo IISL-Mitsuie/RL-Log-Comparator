@@ -2,7 +2,6 @@
 YAML 差分比較ビューウィジェット (YamlDiffWidget) の単体テスト
 """
 
-import os
 import unittest
 import tempfile
 import shutil

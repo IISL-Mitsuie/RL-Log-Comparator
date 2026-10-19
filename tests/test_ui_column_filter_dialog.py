@@ -2,7 +2,6 @@
 ColumnFilterDialogの単体テスト
 """
 
-import pytest
 from PySide6.QtCore import Qt
 from src.ui.dialogs.column_filter_dialog import ColumnFilterDialog
 

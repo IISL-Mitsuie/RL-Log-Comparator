@@ -1,0 +1,5 @@
+#!/bin/sh
+# push 前に ruff と pytest を実行する。失敗したら push を中止する。
+# 一時的にスキップする場合: git push --no-verify
+# .\ を付けて実行する（NoDefaultCurrentDirectoryInExePath が設定された環境でも見つかるようにする）
+exec cmd.exe //c '.\check.bat'

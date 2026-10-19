@@ -7,7 +7,7 @@ import unittest
 import tempfile
 import shutil
 from src.core.parsers.image_pair import (
-    extract_prefix, select_latest_image, detect_image_pairs, ImagePairItem
+    extract_prefix, select_latest_image, detect_image_pairs
 )
 from tests.helpers import create_dummy_experiment_folder
 

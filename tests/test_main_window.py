@@ -8,7 +8,6 @@ import tempfile
 import shutil
 from unittest.mock import patch
 from src.ui.main_window import ExperimentCompareApp
-from src.config import CLEAR_HISTORY_TEXT
 from tests.helpers import get_qapp, create_dummy_experiment_folder
 
 

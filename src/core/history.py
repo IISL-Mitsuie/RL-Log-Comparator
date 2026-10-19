@@ -8,7 +8,6 @@ from src.core.settings import create_settings
 from src.config import (
     SETTINGS_ORG, SETTINGS_APP,
     SETTINGS_KEY_RECENT_FOLDERS,
-    SETTINGS_KEY_RECENT_ROOT_DIRS,
     SETTINGS_KEY_LAST_ROOT_DIR,
     SETTINGS_KEY_LAST_FOLDER_A,
     SETTINGS_KEY_LAST_FOLDER_B,

@@ -3,10 +3,9 @@ experiment_scanner モジュールの単体テスト
 """
 
 import os
-import pytest
 from src.core.parsers.experiment_scanner import (
     flatten_dict, format_timestamp, parse_single_experiment,
-    scan_experiments_directory, ExperimentLogRecord
+    scan_experiments_directory
 )
 from tests.helpers import create_dummy_experiment_folder
 

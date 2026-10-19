@@ -4,7 +4,7 @@ ColumnVisibilityDialog の単体テスト
 
 import pytest
 from PySide6.QtCore import Qt
-from src.ui.dialogs.column_visibility_dialog import ColumnVisibilityDialog, DEFAULT_BASIC_COLUMNS
+from src.ui.dialogs.column_visibility_dialog import ColumnVisibilityDialog
 from tests.helpers import get_qapp
 
 

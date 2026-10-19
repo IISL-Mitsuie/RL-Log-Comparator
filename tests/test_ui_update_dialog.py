@@ -3,8 +3,6 @@ UpdateDialog の UI 単体テスト (tests/test_ui_update_dialog.py)
 """
 
 import unittest
-from unittest.mock import patch, MagicMock
-from PySide6.QtWidgets import QApplication
 
 from src.core.updater import UpdateInfo
 from src.ui.dialogs.update_dialog import UpdateDialog

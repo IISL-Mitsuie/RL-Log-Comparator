@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QLabel, QTextBrowser, QProgressBar, QPushButton,
     QMessageBox, QFrame
 )
-from PySide6.QtCore import Qt, Signal, QObject
+from PySide6.QtCore import Signal, QObject
 
 from src.core.updater import UpdateInfo, download_installer, launch_installer_and_exit
 

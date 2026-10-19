@@ -2,7 +2,6 @@
 画像並列比較ビューウィジェット (ImageCompareWidget) の単体テスト
 """
 
-import os
 import unittest
 import tempfile
 import shutil

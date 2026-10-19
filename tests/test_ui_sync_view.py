@@ -3,8 +3,6 @@
 """
 
 import unittest
-from PySide6.QtGui import QWheelEvent
-from PySide6.QtCore import QPoint, Qt
 from src.ui.widgets.sync_graphics_view import SyncGraphicsView
 from tests.helpers import get_qapp
 
