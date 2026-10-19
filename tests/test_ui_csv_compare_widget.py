@@ -86,6 +86,37 @@ class TestUiCsvCompareWidget(unittest.TestCase):
                 break
         self.assertEqual(widget.txt_xlabel.text(), "Step (step)")
 
+    def _make_broken_csv_folder(self, name: str) -> str:
+        folder = os.path.join(self.test_dir, name)
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "progress.csv"), "w", encoding="utf-8") as f:
+            f.write("step,reward\n1,1.0\n2,2.0,3.0\n")
+        return folder
+
+    def test_broken_csv_shows_load_error(self):
+        """CSV の読み込みに失敗した場合、「データなし」と区別して表示する (ISSUE-07)"""
+        broken = self._make_broken_csv_folder("broken_a")
+        widget = CsvCompareWidget()
+        widget.load_csvs(broken, broken)
+        texts = [t.get_text() for t in widget.figure.axes[0].texts]
+        self.assertTrue(any("フォルダ A の CSV の読み込みに失敗しました: progress.csv" in t for t in texts), texts)
+        self.assertTrue(any("フォルダ B の CSV の読み込みに失敗しました: progress.csv" in t for t in texts), texts)
+        self.assertFalse(any("CSV データが存在しません" in t for t in texts), texts)
+
+        # 片側だけ失敗した場合は、もう片側を描画したうえで、失敗を凡例に表示する
+        widget.load_csvs(broken, self.folder_b)
+        ax = widget.figure.axes[0]
+        self.assertTrue(ax.lines)
+        legend_texts = [t.get_text() for t in ax.get_legend().get_texts()]
+        self.assertTrue(any("フォルダ A の CSV の読み込みに失敗しました" in t for t in legend_texts), legend_texts)
+        self.assertFalse(any("該当列なし" in t for t in legend_texts), legend_texts)
+        self.assertFalse(any("フォルダ B" in t for t in legend_texts), legend_texts)
+
+        # 正常なフォルダを読み直すと消える
+        widget.load_csvs(self.folder_a, self.folder_b)
+        texts = [t.get_text() for t in widget.figure.axes[0].texts]
+        self.assertFalse(any("読み込みに失敗しました" in t for t in texts), texts)
+
     def test_nan_points_are_not_plotted(self):
         """欠損値 (NaN) の点を描画データから除外する (ISSUE-04)"""
         import math

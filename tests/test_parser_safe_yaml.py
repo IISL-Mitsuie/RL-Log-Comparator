@@ -3,6 +3,7 @@ safe_yaml モジュールの単体テスト
 """
 
 import os
+import shutil
 import tempfile
 import unittest
 from src.core.parsers.safe_yaml import safe_load_yaml, sanitize_yaml_text
@@ -72,6 +73,65 @@ continual_learning:
             with open(c_yaml, "w") as f:
                 f.write("{}")
             self.assertEqual(find_config_file(tmp_dir), c_yaml)
+
+
+class TestSafeLoadYamlWithError(unittest.TestCase):
+    """解析の失敗と「設定なし」の区別 (ISSUE-07)"""
+
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def _write(self, name: str, text: str) -> str:
+        path = os.path.join(self.test_dir, name)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        return path
+
+    def test_valid_yaml_has_no_error(self):
+        from src.core.parsers.safe_yaml import safe_load_yaml_with_error
+        data, error = safe_load_yaml_with_error(self._write("ok.yaml", "a: 1\n"))
+        self.assertEqual(data, {"a": 1})
+        self.assertIsNone(error)
+
+    def test_non_dict_or_empty_is_not_error(self):
+        from src.core.parsers.safe_yaml import safe_load_yaml_with_error
+        self.assertEqual(safe_load_yaml_with_error(self._write("list.yaml", "- 1\n- 2\n")), ({}, None))
+        self.assertEqual(safe_load_yaml_with_error(self._write("empty.yaml", "")), ({}, None))
+        self.assertEqual(safe_load_yaml_with_error(os.path.join(self.test_dir, "none.yaml")), ({}, None))
+
+    def test_broken_yaml_returns_error(self):
+        from src.core.parsers.safe_yaml import safe_load_yaml, safe_load_yaml_with_error
+        path = self._write("broken.yaml", "a: [1, 2\nb: {\n")
+        data, error = safe_load_yaml_with_error(path)
+        self.assertEqual(data, {})
+        self.assertTrue(error)
+        # 既存の関数は戻り値の形を変えない
+        self.assertEqual(safe_load_yaml(path), {})
+
+    def test_broken_yaml_log_levels(self):
+        """同じファイルが何度も読まれるため、トレースバックは safe_load_yaml_with_error でだけ記録する"""
+        from src.core.parsers.safe_yaml import safe_load_yaml, safe_load_yaml_with_error
+        path = self._write("broken.yaml", "a: [1, 2\nb: {\n")
+        with self.assertLogs("src.core.parsers.safe_yaml", level="WARNING") as cm:
+            safe_load_yaml(path)
+        self.assertEqual(len(cm.records), 1)
+        self.assertEqual(cm.records[0].levelname, "WARNING")
+        self.assertIsNone(cm.records[0].exc_info)
+
+        with self.assertLogs("src.core.parsers.safe_yaml", level="WARNING") as cm:
+            safe_load_yaml_with_error(path)
+        self.assertEqual(len(cm.records), 1)
+        self.assertEqual(cm.records[0].levelname, "ERROR")
+        self.assertIn("Traceback", cm.output[0])
+
+    def test_sanitized_yaml_has_no_error(self):
+        from src.core.parsers.safe_yaml import safe_load_yaml_with_error
+        data, error = safe_load_yaml_with_error(self._write("win.yaml", 'path: "C:\\Users\\a"\n'))
+        self.assertEqual(data, {"path": "C:/Users/a"})
+        self.assertIsNone(error)
 
 
 if __name__ == '__main__':

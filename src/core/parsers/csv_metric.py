@@ -6,10 +6,22 @@
 
 import os
 import glob
+import logging
 from dataclasses import dataclass, field
 from typing import Optional, Union
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+
+class CsvLoadError(Exception):
+    """CSV が見つかったが、読み込み・解析に失敗したことを表す"""
+
+    def __init__(self, path: str, cause: BaseException):
+        super().__init__(f"{os.path.basename(path)}: {cause}")
+        self.path = path
+        self.cause = cause
 
 
 # 従来の標準指標定義 (後方互換用)
@@ -176,6 +188,7 @@ def _read_csv_robust(path: str, **kwargs) -> pd.DataFrame:
     try:
         return pd.read_csv(path, encoding="utf-8-sig", **kwargs)
     except UnicodeDecodeError:
+        logger.debug("UTF-8 で読めないため cp932 で再試行します: %s", path)
         return pd.read_csv(path, encoding="cp932", **kwargs)
 
 
@@ -323,10 +336,12 @@ def find_log_csv(folder_path: str) -> Optional[str]:
     return None
 
 
-def read_log_csv(folder_path: str) -> Optional[pd.DataFrame]:
+def read_log_csv(folder_path: str, raise_on_error: bool = False) -> Optional[pd.DataFrame]:
     """
     フォルダ内の learning_log_*.csv (または *.csv) を安全に読み込んで DataFrame を返す。
     _task_ を含まない全タスク統合CSVを最優先でロードする。
+    CSV が見つからない場合は None を返す。読み込みに失敗した場合は、raise_on_error が True なら
+    CsvLoadError を送出し、False なら None を返す（いずれもログに記録する）。
     """
     target_csv = find_log_csv(folder_path)
     if not target_csv:
@@ -336,7 +351,9 @@ def read_log_csv(folder_path: str) -> Optional[pd.DataFrame]:
         df, _ = normalize_log_dataframe(_read_csv_robust(target_csv))
         return df
     except Exception as e:
-        print(f"[ERROR] Failed to read CSV ({target_csv}): {e}")
+        logger.exception("CSV の読み込みに失敗しました: %s", target_csv)
+        if raise_on_error:
+            raise CsvLoadError(target_csv, e) from e
         return None
 
 
@@ -409,7 +426,7 @@ def scan_task_options(folder_path: str, df: Optional[pd.DataFrame] = None) -> li
                             gy = head_df['Goal_Y'].iloc[0]
                             goal_desc = f" (Goal: [{gx:.1f}, {gy:.1f}])"
                     except Exception:
-                        pass
+                        logger.debug("タスク別 CSV のゴール座標を取得できませんでした: %s", fpath, exc_info=True)
                     options.append(TaskOption(
                         task_id=t_int,
                         display_name=f"Task {t_int}{unreg_label}{goal_desc}",
@@ -450,8 +467,8 @@ def load_task_dataframe(
         try:
             df, _ = normalize_log_dataframe(_read_csv_robust(task_option.csv_path))
             return df
-        except Exception as e:
-            print(f"[WARN] Failed to read task csv ({task_option.csv_path}): {e}")
+        except Exception:
+            logger.warning("タスク別 CSV の読み込みに失敗しました: %s", task_option.csv_path, exc_info=True)
 
     # 個別ファイルがない場合、df_main から抽出
     if df_main is not None and not df_main.empty:
@@ -470,7 +487,7 @@ def load_task_dataframe(
                 df, _ = normalize_log_dataframe(_read_csv_robust(cands[0]))
                 return df
             except Exception:
-                pass
+                logger.debug("タスク別 CSV の読み込みに失敗しました: %s", cands[0], exc_info=True)
 
     return None
 

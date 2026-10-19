@@ -437,6 +437,40 @@ class TestCsvMetricCorrectness(unittest.TestCase):
         self.assertEqual(list(df["Episode"]), [11, 12])
 
 
+class TestCsvLoadError(unittest.TestCase):
+    """CSV の読み込み失敗と「CSV なし」の区別 (ISSUE-07)"""
+
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def _broken_folder(self) -> str:
+        folder = os.path.join(self.test_dir, "broken")
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "progress.csv"), "w", encoding="utf-8") as f:
+            f.write("step,reward\n1,1.0\n2,2.0,3.0\n")
+        return folder
+
+    def test_broken_csv_raises_when_requested(self):
+        from src.core.parsers.csv_metric import CsvLoadError
+        with self.assertRaises(CsvLoadError) as cm:
+            read_log_csv(self._broken_folder(), raise_on_error=True)
+        self.assertEqual(os.path.basename(cm.exception.path), "progress.csv")
+
+    def test_broken_csv_returns_none_and_logs_by_default(self):
+        with self.assertLogs("src.core.parsers.csv_metric", level="ERROR") as cm:
+            self.assertIsNone(read_log_csv(self._broken_folder()))
+        self.assertIn("progress.csv", cm.output[0])
+        self.assertIn("Traceback", cm.output[0])
+
+    def test_missing_csv_does_not_raise(self):
+        folder = os.path.join(self.test_dir, "empty")
+        os.makedirs(folder, exist_ok=True)
+        self.assertIsNone(read_log_csv(folder, raise_on_error=True))
+
+
 if __name__ == "__main__":
     unittest.main()
 

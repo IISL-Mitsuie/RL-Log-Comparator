@@ -2,12 +2,13 @@
 メインウィンドウモジュール (ExperimentCompareApp)
 """
 
+import logging
 import os
 from typing import Optional
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGroupBox, QLabel, QComboBox, QPushButton, QTabWidget,
-    QFileDialog, QMessageBox
+    QFileDialog, QMessageBox, QStatusBar
 )
 from PySide6.QtGui import QIcon
 from PySide6.QtCore import QObject, Signal
@@ -28,6 +29,21 @@ from src.ui.widgets.csv_compare_widget import CsvCompareWidget
 from src.ui.widgets.log_spec_widget import LogSpecWidget
 from src.ui.widgets.experiment_explorer_widget import ExperimentExplorerWidget
 
+logger = logging.getLogger(__name__)
+
+# 読み込みに失敗したタブをステータスバーに表示する時間 (ミリ秒)
+LOAD_ERROR_MESSAGE_MSEC = 10_000
+# ステータスバーに表示する例外メッセージの最大文字数
+LOAD_ERROR_MESSAGE_MAX_CHARS = 120
+
+
+def _short_error(e: BaseException) -> str:
+    """ステータスバー用に、例外メッセージの 1 行目を短くして返す"""
+    lines = str(e).strip().splitlines()
+    text = f"{type(e).__name__}: {lines[0]}" if lines else type(e).__name__
+    if len(text) > LOAD_ERROR_MESSAGE_MAX_CHARS:
+        text = text[:LOAD_ERROR_MESSAGE_MAX_CHARS - 1] + "…"
+    return text
 
 
 class ExperimentCompareApp(QMainWindow):
@@ -135,6 +151,9 @@ class ExperimentCompareApp(QMainWindow):
         self.tabs.addTab(self.tab_spec, "5. ログ仕様ガイド・エクスポート (Spec & Export)")
 
         main_layout.addWidget(self.tabs, 1)
+
+        # 3. 最下部: ステータスバー（読み込みの失敗などを表示）
+        self.setStatusBar(QStatusBar())
 
     def _on_set_folder_a_from_explorer(self, folder_path: str) -> None:
         """エクスプローラータブからのフォルダA設定要求"""
@@ -265,9 +284,27 @@ class ExperimentCompareApp(QMainWindow):
         self._last_loaded_a = folder_a
         self._last_loaded_b = folder_b
 
-        self.tab_yaml.load_yamls(folder_a, folder_b)
-        self.tab_images.load_folders(folder_a, folder_b)
-        self.tab_csv.load_csvs(folder_a, folder_b)
+        # 1 つのタブが失敗しても、残りのタブは読み込む
+        loaders = [
+            ("ハイパーパラメータ差分 (YAML)", self.tab_yaml.load_yamls),
+            ("画像目視比較", self.tab_images.load_folders),
+            ("数値ログ比較グラフ (CSV)", self.tab_csv.load_csvs),
+        ]
+        failures: list[str] = []
+        for tab_name, load in loaders:
+            try:
+                load(folder_a, folder_b)
+            except Exception as e:
+                logger.exception("%s タブの読み込みに失敗しました (A: %s, B: %s)", tab_name, folder_a, folder_b)
+                failures.append(f"{tab_name}: {_short_error(e)}")
+
+        if failures:
+            self.statusBar().showMessage(
+                "読み込みに失敗したタブがあります（詳細はログを参照）: " + " / ".join(failures),
+                LOAD_ERROR_MESSAGE_MSEC
+            )
+        else:
+            self.statusBar().clearMessage()
 
     def _restore_last_session(self) -> None:
         """前回終了時に開いていたフォルダパスを復元（充足）"""
@@ -331,7 +368,7 @@ class ExperimentCompareApp(QMainWindow):
             try:
                 self.btn_update_header.clicked.disconnect()
             except Exception:
-                pass
+                logger.debug("更新ボタンの接続を解除できませんでした", exc_info=True)
             self.btn_update_header.clicked.connect(self._open_update_dialog)
 
     def _open_update_dialog(self) -> None:

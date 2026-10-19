@@ -2,8 +2,11 @@
 ファイルパス解決および静的リソース読み込みモジュール
 """
 
+import logging
 import sys
 import os
+
+logger = logging.getLogger(__name__)
 
 
 def get_project_root() -> str:
@@ -93,5 +96,6 @@ def load_log_spec_markdown() -> str:
             with open(spec_path, "r", encoding="utf-8") as f:
                 return f.read()
         except Exception as e:
+            logger.warning("仕様書ファイルの読み込みに失敗しました: %s", spec_path, exc_info=True)
             return f"# エラー\n\n仕様書ファイルの読み込みに失敗しました:\n`{e}`"
     return f"# エラー\n\n仕様書ファイルが見つかりません:\n`{spec_path}`"
