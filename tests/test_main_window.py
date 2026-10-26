@@ -152,6 +152,26 @@ class TestMainWindow(unittest.TestCase):
         self.assertEqual(new_window._last_loaded_a, os.path.abspath(self.folder_a))
         self.assertEqual(new_window._last_loaded_b, os.path.abspath(self.folder_b))
 
+    def test_load_all_continues_when_one_tab_fails(self):
+        """1 つのタブの読み込みが失敗しても、残りのタブは読み込まれ、ステータスバーに表示される (ISSUE-07)"""
+        window = self._create_isolated_window()
+        window.combo_folder_a.setEditText(self.folder_a)
+        window.combo_folder_b.setEditText(self.folder_b)
+
+        with patch.object(window.tab_yaml, "load_yamls", side_effect=TypeError("YAML の想定外エラー")), \
+                patch.object(window.tab_images, "load_folders", wraps=window.tab_images.load_folders) as mock_images, \
+                patch.object(window.tab_csv, "load_csvs", wraps=window.tab_csv.load_csvs) as mock_csv, \
+                self.assertLogs("src.ui.main_window", level="ERROR") as logs:
+            window.load_all()
+
+        mock_images.assert_called_once_with(self.folder_a, self.folder_b)
+        mock_csv.assert_called_once_with(self.folder_a, self.folder_b)
+        self.assertIsNotNone(window.tab_csv.df_a)
+        message = window.statusBar().currentMessage()
+        self.assertIn("ハイパーパラメータ差分", message)
+        self.assertIn("YAML の想定外エラー", message)
+        self.assertIn("Traceback", logs.output[0])
+
 
 if __name__ == "__main__":
     unittest.main()

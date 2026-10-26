@@ -9,7 +9,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from src.core.parsers.safe_yaml import safe_load_yaml, find_config_file
+from src.core.parsers.safe_yaml import safe_load_yaml, safe_load_yaml_with_error, find_config_file
 
 
 @dataclass
@@ -24,15 +24,29 @@ class DiffNode:
     children: list['DiffNode'] = field(default_factory=list)
 
 
+def _find_folder_config(folder_path: str) -> Optional[str]:
+    """フォルダ内の設定ファイル (config_used_*.yaml, *.yaml, *.yml, *.json) のパスを返す"""
+    if not folder_path or not os.path.isdir(folder_path):
+        return None
+    return find_config_file(folder_path)
+
+
 def read_yaml_file(folder_path: str) -> dict[str, Any]:
     """フォルダ内の config_used_*.yaml (または *.yaml, *.yml, *.json) を安全に読み込んで辞書を返す"""
-    if not folder_path or not os.path.isdir(folder_path):
-        return {}
+    config_file = _find_folder_config(folder_path)
+    return safe_load_yaml(config_file) if config_file else {}
 
-    config_file = find_config_file(folder_path)
+
+def read_yaml_file_with_error(folder_path: str) -> tuple[dict[str, Any], Optional[str]]:
+    """
+    read_yaml_file と同じ規則で読み込み、(辞書, 解析に失敗した設定ファイルのパス) を返す。
+    設定ファイルがない場合や、正常に読み込めた場合は、2 つ目の値を None とする。
+    """
+    config_file = _find_folder_config(folder_path)
     if not config_file:
-        return {}
-    return safe_load_yaml(config_file)
+        return {}, None
+    data, error = safe_load_yaml_with_error(config_file)
+    return data, (config_file if error else None)
 
 
 # キーが存在しないことを表す番兵（YAML の null = None と区別するため）

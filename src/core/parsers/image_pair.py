@@ -3,12 +3,15 @@
 単一学習ログおよび継続学習ログ（タスク別報酬・ステップ、統合学習曲線、軌跡）に網羅的に対応
 """
 
+import logging
 import os
 import re
 from dataclasses import dataclass
 from typing import Optional
 
 from src.config import SUPPORTED_IMAGE_EXTENSIONS
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -151,7 +154,7 @@ def get_folder_image_list(folder_path: str) -> list[tuple[str, str, str]]:
                 if ext in SUPPORTED_IMAGE_EXTENSIONS:
                     imgs.append(full_path)
     except OSError:
-        pass
+        logger.debug("画像フォルダを一覧できませんでした: %s", folder_path, exc_info=True)
 
     prefix_to_paths: dict[str, list[str]] = {}
     for p in imgs:

@@ -4,6 +4,8 @@
 フォルダA/B間での個別タスク選択および凡例の任意編集（カスタム凡例）をサポート
 """
 
+import logging
+import os
 from typing import Optional
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QGroupBox,
@@ -31,8 +33,10 @@ from src.core.settings import create_settings
 from src.core.parsers.experiment import get_experiment_info
 from src.core.parsers.csv_metric import (
     read_log_csv, compute_metric_series, get_available_metrics, TaskOption,
-    scan_task_options, load_task_dataframe, EPISODE_X_LABEL
+    scan_task_options, load_task_dataframe, EPISODE_X_LABEL, CsvLoadError
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _drop_nan(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -52,6 +56,8 @@ class CsvCompareWidget(QWidget):
         self.folder_b = ""
         self.df_a = None
         self.df_b = None
+        # 「CSV がない」と「読み込みに失敗した」を区別するため、失敗したファイル名を保持する ("A"/"B" → ファイル名)
+        self._csv_load_errors: dict[str, str] = {}
         self.info_a = "フォルダ A"
         self.info_b = "フォルダ B"
         self.task_options_a: list[TaskOption] = []
@@ -412,6 +418,7 @@ class CsvCompareWidget(QWidget):
 
     def load_csvs(self, folder_a: str, folder_b: str) -> None:
         """フォルダA/Bの CSV ログを読み込んでタスクリスト、指標リストおよびチャートを更新"""
+        self._csv_load_errors = {}
         self.folder_a = folder_a
         self.folder_b = folder_b
         self.info_a = get_experiment_info(folder_a)
@@ -420,13 +427,21 @@ class CsvCompareWidget(QWidget):
         # フォルダ再読み込み時はテキスト設定をデフォルトにリセット
         self._need_reset_texts = True
 
-        self.df_a = read_log_csv(folder_a)
-        self.df_b = read_log_csv(folder_b)
+        self.df_a = self._read_csv_or_record_error(folder_a, "A")
+        self.df_b = self._read_csv_or_record_error(folder_b, "B")
 
         # 指標一覧およびタスク一覧の統合更新
         self._update_metrics_list()
         self._update_task_combos()
         self.update_chart()
+
+    def _read_csv_or_record_error(self, folder: str, side: str):
+        """CSV を読み込む。失敗した場合はファイル名を記録して None を返す"""
+        try:
+            return read_log_csv(folder, raise_on_error=True)
+        except CsvLoadError as e:
+            self._csv_load_errors[side] = os.path.basename(e.path)
+            return None
 
     def _update_metrics_list(self) -> None:
         """AおよびBの DataFrame から利用可能な指標一覧を取得し、リストを動的再構築（案A: グループ化）"""
@@ -689,11 +704,17 @@ class CsvCompareWidget(QWidget):
                     zorder=5, label=label_star_b
                 )
 
-        # 片側のみデータが存在する場合の案内
+        # CSV の読み込みに失敗した場合は「データなし」と区別して表示する
+        load_error_msgs = {
+            side: f"フォルダ {side} の CSV の読み込みに失敗しました: {name}（詳細はログを参照）"
+            for side, name in self._csv_load_errors.items()
+        }
+
+        # 片側のみデータが存在する場合の案内（読み込みに失敗した側は、その旨を凡例に示す）
         if data_a.has_data and not data_b.has_data:
-            ax.plot([], [], ' ', label="B: [該当列なし]")
+            ax.plot([], [], ' ', label=load_error_msgs.get("B", "B: [該当列なし]"))
         elif not data_a.has_data and data_b.has_data:
-            ax.plot([], [], ' ', label="A: [該当列なし]")
+            ax.plot([], [], ' ', label=load_error_msgs.get("A", "A: [該当列なし]"))
 
         # フォントサイズ設定の取得
         font_label = self.spin_font_label.value() if hasattr(self, 'spin_font_label') else DEFAULT_CHART_FONT_LABEL
@@ -729,7 +750,18 @@ class CsvCompareWidget(QWidget):
                 ax.text(0.99, 0.01, "※ X 軸の単位が A/B で異なります",
                         horizontalalignment='right', verticalalignment='bottom',
                         transform=ax.transAxes, fontsize=max(6, font_legend - 1), color='#aa5500')
-        else:
+
+        # 描画できる系列がない場合は、読み込みの失敗を中央に表示する（片側だけの失敗は凡例に示す）
+        if not has_plot and load_error_msgs:
+            center_lines = [load_error_msgs[side] for side in sorted(load_error_msgs)]
+            # 読み込めた側に、選択した指標のデータがないことも併せて示す
+            for side, df in (("A", self.df_a), ("B", self.df_b)):
+                if side not in load_error_msgs and df is not None:
+                    center_lines.append(f"{side}: [該当列なし]")
+            ax.text(0.5, 0.5, "\n".join(center_lines),
+                    horizontalalignment='center', verticalalignment='center',
+                    transform=ax.transAxes, fontsize=max(10, font_title), color='#c0392b')
+        elif not has_plot:
             ax.text(0.5, 0.5, "比較対象の CSV データが存在しません",
                     horizontalalignment='center', verticalalignment='center',
                     transform=ax.transAxes, fontsize=max(10, font_title), color='#666666')
@@ -738,6 +770,6 @@ class CsvCompareWidget(QWidget):
         try:
             self.figure.tight_layout(pad=1.2)
         except Exception:
-            pass
+            logger.debug("グラフのレイアウト調整に失敗しました", exc_info=True)
 
         self.canvas.draw()

@@ -2,6 +2,7 @@
 実験ログフォルダ走査・設定パースモジュール（Qt非依存）
 """
 
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -10,6 +11,8 @@ from typing import Any, Optional
 from src.core.parsers.image_pair import select_latest_image, get_folder_images_dict
 from src.core.parsers.safe_yaml import safe_load_yaml, find_config_file
 from src.core.parsers.csv_metric import find_log_csv
+
+logger = logging.getLogger(__name__)
 
 # 後方互換・エイリアス
 _select_latest_image = select_latest_image
@@ -105,7 +108,7 @@ def _inspect_csv_for_continual(csv_path: Optional[str]) -> Optional[bool]:
         if "episode" in headers:
             return False
     except Exception:
-        pass
+        logger.debug("CSV のヘッダーを読み込めませんでした: %s", csv_path, exc_info=True)
     return None
 
 
@@ -135,6 +138,7 @@ def _count_tasks_from_csv(csv_path: Optional[str]) -> int:
                         tasks.add(val)
             return len(tasks)
     except Exception:
+        logger.debug("CSV のタスク数を数えられませんでした: %s", csv_path, exc_info=True)
         return 0
 
 
@@ -325,7 +329,7 @@ def scan_experiments_directory(
                             candidate_folders.append(full_path)
                             dirs_to_remove.append(d)
                     except OSError:
-                        pass
+                        logger.debug("フォルダを一覧できませんでした: %s", full_path, exc_info=True)
             for d in dirs_to_remove:
                 dirs.remove(d)
     else:

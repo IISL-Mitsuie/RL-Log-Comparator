@@ -2,6 +2,7 @@
 ハイパーパラメータ (YAML) 差分比較ビューウィジェット
 """
 
+import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
     QCheckBox, QPushButton, QLabel, QHeaderView
@@ -9,7 +10,10 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QColor, QBrush, QFont
 
 from src.core.parsers.experiment import get_experiment_info
-from src.core.parsers.yaml_diff import read_yaml_file, build_diff_tree, DiffNode
+from src.core.parsers.yaml_diff import read_yaml_file_with_error, build_diff_tree, DiffNode
+
+_STATUS_STYLE = "font-size: 13px; font-weight: bold; color: #0055cc; padding: 4px;"
+_STATUS_ERROR_STYLE = "font-size: 13px; font-weight: bold; color: #c0392b; padding: 4px;"
 
 
 class YamlDiffWidget(QWidget):
@@ -21,6 +25,7 @@ class YamlDiffWidget(QWidget):
         self.info_b = "フォルダ B"
         self.yaml_a = {}
         self.yaml_b = {}
+        self._load_errors: list[str] = []  # 設定ファイルの解析に失敗した旨のメッセージ
         self._init_ui()
 
     def _init_ui(self):
@@ -44,7 +49,7 @@ class YamlDiffWidget(QWidget):
         layout.addLayout(ctrl_layout)
 
         self.lbl_status = QLabel("")
-        self.lbl_status.setStyleSheet("font-size: 13px; font-weight: bold; color: #0055cc; padding: 4px;")
+        self.lbl_status.setStyleSheet(_STATUS_STYLE)
         layout.addWidget(self.lbl_status)
 
         self.tree = QTreeWidget()
@@ -63,8 +68,13 @@ class YamlDiffWidget(QWidget):
         self.info_b = get_experiment_info(path_b)
         self.tree.setHeaderLabels(["パラメータキー", f"A: {self.info_a}", f"B: {self.info_b}", "状態"])
 
-        self.yaml_a = read_yaml_file(path_a)
-        self.yaml_b = read_yaml_file(path_b)
+        self.yaml_a, failed_a = read_yaml_file_with_error(path_a)
+        self.yaml_b, failed_b = read_yaml_file_with_error(path_b)
+        # 「設定ファイルがない」と「解析に失敗した」を区別して表示する
+        self._load_errors = [
+            f"フォルダ {side} の設定ファイルの解析に失敗しました: {os.path.basename(failed)}（詳細はログを参照）"
+            for side, failed in (("A", failed_a), ("B", failed_b)) if failed
+        ]
         self.refresh_tree()
 
     def refresh_tree(self) -> None:
@@ -82,14 +92,21 @@ class YamlDiffWidget(QWidget):
         root_count = self.tree.topLevelItemCount()
         if root_count == 0:
             if diff_only and (self.yaml_a or self.yaml_b):
-                self.lbl_status.setText("※ 差分のあるパラメータはありません（すべての設定値が完全一致しています）")
+                status = "※ 差分のあるパラメータはありません（すべての設定値が完全一致しています）"
             else:
-                self.lbl_status.setText("※ 表示できるハイパーパラメータが存在しません")
+                status = "※ 表示できるハイパーパラメータが存在しません"
         else:
             if diff_only:
-                self.lbl_status.setText(f"※ 差分のあるパラメータを表示中 ({root_count} 項目)")
+                status = f"※ 差分のあるパラメータを表示中 ({root_count} 項目)"
             else:
-                self.lbl_status.setText(f"※ 全パラメータを表示中 ({root_count} 項目)")
+                status = f"※ 全パラメータを表示中 ({root_count} 項目)"
+
+        if self._load_errors:
+            self.lbl_status.setStyleSheet(_STATUS_ERROR_STYLE)
+            self.lbl_status.setText("\n".join([f"⚠ {msg}" for msg in self._load_errors] + [status]))
+        else:
+            self.lbl_status.setStyleSheet(_STATUS_STYLE)
+            self.lbl_status.setText(status)
 
     def _render_node(self, parent_item: QTreeWidgetItem, node: DiffNode) -> None:
         """DiffNode 構造体を QTreeWidgetItem に描画"""

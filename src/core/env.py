@@ -4,9 +4,12 @@
 
 import os
 import ctypes
+import logging
 import tempfile
 from src.config import APP_USER_MODEL_ID, MATPLOTLIB_CACHE_DIR_NAME
 from src.core.paths import get_bundled_font_path
+
+logger = logging.getLogger(__name__)
 
 
 def setup_app_user_model_id():
@@ -14,7 +17,7 @@ def setup_app_user_model_id():
     try:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
     except Exception:
-        pass
+        logger.debug("AppUserModelID を設定できませんでした", exc_info=True)
 
 
 def setup_mpl_cache_dir():
@@ -25,7 +28,7 @@ def setup_mpl_cache_dir():
         os.makedirs(mpl_cache_dir, exist_ok=True)
         os.environ['MPLCONFIGDIR'] = mpl_cache_dir
     except Exception:
-        pass
+        logger.debug("Matplotlib のキャッシュフォルダを設定できませんでした: %s", mpl_cache_dir, exc_info=True)
 
 
 def setup_matplotlib_japanese_font():
@@ -52,7 +55,7 @@ def setup_matplotlib_japanese_font():
             if name and name not in registered_families:
                 registered_families.append(name)
         except Exception:
-            pass
+            logger.debug("フォントを登録できませんでした: %s", font_path, exc_info=True)
 
     # 1. 同梱フォント (IPAexゴシック) の登録（最優先）
     bundled_font = get_bundled_font_path()
