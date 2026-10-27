@@ -5,6 +5,7 @@
 """
 
 import os
+from functools import lru_cache
 from typing import Any, Optional
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSplitter, QGroupBox,
@@ -12,8 +13,8 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QTabWidget, QFileDialog,
     QMenu, QMessageBox, QAbstractItemView, QFrame, QComboBox
 )
-from PySide6.QtCore import Qt, Signal, QUrl
-from PySide6.QtGui import QPixmap, QDesktopServices, QColor
+from PySide6.QtCore import Qt, Signal, QUrl, QSize, QThreadPool
+from PySide6.QtGui import QPixmap, QDesktopServices, QColor, QImage, QImageReader
 
 from src.config import SETTINGS_KEY_RECENT_ROOT_DIRS, CLEAR_HISTORY_TEXT
 from src.core.history import RecentFolderManager
@@ -28,6 +29,7 @@ from src.ui.dialogs.experiment_action_dialog import (
 )
 from src.ui.dialogs.column_visibility_dialog import ColumnVisibilityDialog
 from src.ui.dialogs.column_filter_dialog import ColumnFilterDialog
+from src.ui.workers import FunctionWorker
 
 
 
@@ -66,6 +68,48 @@ class ShiftScrollTableWidget(QTableWidget):
         super().wheelEvent(event)
 
 
+MAX_PREVIEW_EDGE = 1600
+
+
+@lru_cache(maxsize=64)
+def _load_and_scale_image(file_path: str, mtime: float, target_w: int, target_h: int) -> Optional[QImage]:
+    """
+    画像ファイルを長辺最大1600px・指定表示サイズに合わせて縮小デコードする。
+    (file_path, mtime, target_w, target_h) で最大64枚をLRUキャッシュする。
+    """
+    if not file_path or not os.path.isfile(file_path):
+        return None
+    reader = QImageReader(file_path)
+    if not reader.canRead():
+        return None
+    orig_size = reader.size()
+    if not orig_size.isValid() or orig_size.width() <= 0 or orig_size.height() <= 0:
+        img = reader.read()
+        return img if not img.isNull() else None
+
+    tw = max(target_w, 200)
+    th = max(target_h, 150)
+    orig_w = orig_size.width()
+    orig_h = orig_size.height()
+
+    scale = min(tw / orig_w, th / orig_h)
+    scale = min(scale, 1.0)
+    dest_w = max(1, int(orig_w * scale))
+    dest_h = max(1, int(orig_h * scale))
+
+    if max(dest_w, dest_h) > MAX_PREVIEW_EDGE:
+        limit_scale = MAX_PREVIEW_EDGE / max(dest_w, dest_h)
+        dest_w = max(1, int(dest_w * limit_scale))
+        dest_h = max(1, int(dest_h * limit_scale))
+
+    reader.setScaledSize(QSize(dest_w, dest_h))
+    img = reader.read()
+    if img.isNull():
+        reader.setFileName(file_path)
+        img = reader.read()
+    return img if not img.isNull() else None
+
+
 class ImagePreviewLabel(QLabel):
     """ウィンドウサイズ変更時にアスペクト比を維持して画像をスケール表示するラベル"""
 
@@ -73,21 +117,59 @@ class ImagePreviewLabel(QLabel):
         super().__init__(parent)
         self.placeholder_text = placeholder_text
         self._pixmap: Optional[QPixmap] = None
+        self._current_path: Optional[str] = None
+        self._decode_generation: int = 0
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setMinimumSize(200, 150)
         self.setStyleSheet("background-color: #1e1e1e; color: #888; border-radius: 4px;")
         self.show_placeholder()
 
-    def set_image(self, file_path: Optional[str]):
-        """画像ファイルを読み込んでスケーリング表示（破損ファイルはプレースホルダー表示）"""
-        if file_path and os.path.exists(file_path):
-            pixmap = QPixmap(file_path)
-            if not pixmap.isNull():
-                self._pixmap = pixmap
+    def set_image(self, file_path: Optional[str], *, blocking: bool = False):
+        """画像ファイルを非同期または同期で縮小読み込みしてスケーリング表示"""
+        self._decode_generation += 1
+        self._current_path = file_path
+
+        if not file_path or not os.path.isfile(file_path):
+            self._pixmap = None
+            self.show_placeholder()
+            return
+
+        self.show_placeholder("読み込み中…")
+
+        try:
+            mtime = os.path.getmtime(file_path)
+        except OSError:
+            self.show_placeholder("画像の読み込みに失敗しました")
+            return
+
+        w = self.width() if self.width() > 0 else 200
+        h = self.height() if self.height() > 0 else 150
+
+        if blocking:
+            img = _load_and_scale_image(file_path, mtime, w, h)
+            if img is not None and not img.isNull():
+                self._pixmap = QPixmap.fromImage(img)
+                self.setText("")
                 self._update_scaled()
-                return
-        self._pixmap = None
-        self.show_placeholder()
+            else:
+                self.show_placeholder("画像の読み込みに失敗しました")
+            return
+
+        gen = self._decode_generation
+        worker = FunctionWorker(_load_and_scale_image, file_path, mtime, w, h, generation=gen)
+        worker.signals.finished.connect(self._on_image_decoded)
+        worker.signals.failed.connect(lambda g, _err: self._on_image_decoded(g, None))
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_image_decoded(self, gen: int, img: Optional[QImage]):
+        if gen != self._decode_generation:
+            return
+        if img is not None and not img.isNull():
+            self._pixmap = QPixmap.fromImage(img)
+            self.setText("")
+            self._update_scaled()
+        else:
+            self.show_placeholder("画像の読み込みに失敗しました")
 
     def show_placeholder(self, text: Optional[str] = None):
         self._pixmap = None
@@ -129,6 +211,12 @@ class ExperimentExplorerWidget(QWidget):
         self._last_selected_tab_key: str = ""
         self._current_tab_keys: list[str] = []
         self._tab_preview_labels: dict[str, ImagePreviewLabel] = {}
+        self._tab_image_paths: dict[str, Optional[str]] = {}
+
+        # 走査制御用変数
+        self._scan_generation: int = 0
+        self._scan_worker: Optional[FunctionWorker] = None
+        self._is_scanning: bool = False
 
         self._init_ui()
         self._update_history_combo()
@@ -176,15 +264,15 @@ class ExperimentExplorerWidget(QWidget):
         self.cb_recursive.setChecked(True)
         self.cb_recursive.toggled.connect(self.scan_directory)
 
-        btn_reload = QPushButton("再読込")
-        btn_reload.setMaximumWidth(70)
-        btn_reload.clicked.connect(self.scan_directory)
+        self.btn_reload = QPushButton("再読込")
+        self.btn_reload.setMaximumWidth(70)
+        self.btn_reload.clicked.connect(self._on_reload_clicked)
 
         right_top_lay = QHBoxLayout()
         right_top_lay.setContentsMargins(0, 0, 0, 0)
         right_top_lay.setSpacing(8)
         right_top_lay.addWidget(self.cb_recursive)
-        right_top_lay.addWidget(btn_reload)
+        right_top_lay.addWidget(self.btn_reload)
         ctrl_grid.addLayout(right_top_lay, 0, 2)
 
         # 1-2. 視覚的セパレータ（探索データソースと絞り込み設定の分離）（行1）
@@ -377,11 +465,11 @@ class ExperimentExplorerWidget(QWidget):
         """現在入力されている探索ルートフォルダパスを取得"""
         return self.combo_root_dir.currentText().strip()
 
-    def set_root_directory(self, path: str):
+    def set_root_directory(self, path: str, *, blocking: bool = False):
         """外部からルートフォルダを設定して走査を開始"""
         norm_path = os.path.abspath(path.strip()) if path and os.path.exists(path.strip()) else path.strip()
         self.combo_root_dir.setEditText(norm_path)
-        self.scan_directory()
+        self.scan_directory(blocking=blocking)
 
     def _update_history_combo(self) -> None:
         """コンボボックスのドロップダウン項目を最新のルートフォルダ履歴で更新"""
@@ -433,8 +521,21 @@ class ExperimentExplorerWidget(QWidget):
             self.combo_root_dir.setEditText(norm_folder)
             self.scan_directory()
 
-    def scan_directory(self):
-        """指定されたルートフォルダ配下を走査してテーブルを構築"""
+    def _on_reload_clicked(self) -> None:
+        """再読込 / 中止ボタンのクリックハンドラ"""
+        if self._is_scanning:
+            self.cancel_scan()
+        else:
+            self.scan_directory()
+
+    def cancel_scan(self) -> None:
+        """実行中の走査があればキャンセル要求を発行"""
+        if self._scan_worker is not None:
+            self._scan_worker.cancel()
+            self.lbl_table_status.setText("探索を中止中…")
+
+    def scan_directory(self, *, blocking: bool = False):
+        """指定されたルートフォルダ配下を走査してテーブルを構築（非同期/同期切替可能）"""
         root_dir = self.combo_root_dir.currentText().strip()
         if not root_dir or not os.path.isdir(root_dir):
             self.lbl_table_status.setText("⚠️ 有効なディレクトリを指定してください。")
@@ -446,16 +547,70 @@ class ExperimentExplorerWidget(QWidget):
         self.combo_root_dir.setEditText(norm_dir)
 
         recursive = self.cb_recursive.isChecked()
+
+        # 実行中の走査があればキャンセル
+        if self._is_scanning:
+            self.cancel_scan()
+
+        self._scan_generation += 1
+        gen = self._scan_generation
+
+        if blocking:
+            self.lbl_table_status.setText(f"フォルダを探索中: {norm_dir} (再帰: {recursive})...")
+            records, config_keys = scan_experiments_directory(norm_dir, recursive=recursive)
+            self._records = records
+            self._config_keys = config_keys
+            self._populate_table()
+            self.lbl_table_status.setText(
+                f"探索完了: {len(records)} 件の実験ログを検出しました（Configパラメータ数: {len(config_keys)} 列）。"
+            )
+            return
+
+        self._is_scanning = True
+        self.btn_reload.setText("中止")
         self.lbl_table_status.setText(f"フォルダを探索中: {norm_dir} (再帰: {recursive})...")
 
-        records, config_keys = scan_experiments_directory(norm_dir, recursive=recursive)
+        worker = FunctionWorker(
+            scan_experiments_directory,
+            norm_dir,
+            recursive=recursive,
+            generation=gen
+        )
+        worker.signals.progress.connect(self._on_scan_progress)
+        worker.signals.finished.connect(self._on_scan_finished)
+        worker.signals.failed.connect(self._on_scan_failed)
+        self._scan_worker = worker
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_scan_progress(self, gen: int, count: int, folder_name: str) -> None:
+        if gen != self._scan_generation:
+            return
+        self.lbl_table_status.setText(f"探索中… {count} 件目: {folder_name}")
+
+    def _on_scan_finished(self, gen: int, result: Any) -> None:
+        if gen != self._scan_generation:
+            return
+        self._is_scanning = False
+        self.btn_reload.setText("再読込")
+        records, config_keys = result
         self._records = records
         self._config_keys = config_keys
-
         self._populate_table()
-        self.lbl_table_status.setText(
-            f"探索完了: {len(records)} 件の実験ログを検出しました（Configパラメータ数: {len(config_keys)} 列）。"
-        )
+        if self._scan_worker and self._scan_worker.cancel_event.is_set():
+            self.lbl_table_status.setText(
+                f"探索を中止しました: {len(records)} 件の実験ログを検出しました。"
+            )
+        else:
+            self.lbl_table_status.setText(
+                f"探索完了: {len(records)} 件の実験ログを検出しました（Configパラメータ数: {len(config_keys)} 列）。"
+            )
+
+    def _on_scan_failed(self, gen: int, error_msg: str) -> None:
+        if gen != self._scan_generation:
+            return
+        self._is_scanning = False
+        self.btn_reload.setText("再読込")
+        self.lbl_table_status.setText(f"⚠️ 探索中にエラーが発生しました: {error_msg}")
 
     def _populate_table(self):
         """テーブルの行・列を構築"""
@@ -757,9 +912,14 @@ class ExperimentExplorerWidget(QWidget):
         return None
 
     def _on_preview_tab_changed(self, index: int):
-        """ユーザーが手動でプレビュータブを切り替えた際、選択したプレフィックスを記憶"""
+        """ユーザーが手動でプレビュータブを切り替えた際、選択したプレフィックスを記憶し遅延読み込みを行う"""
         if 0 <= index < len(self._current_tab_keys):
-            self._last_selected_tab_key = self._current_tab_keys[index]
+            key = self._current_tab_keys[index]
+            self._last_selected_tab_key = key
+            lbl = self._tab_preview_labels.get(key)
+            img_path = self._tab_image_paths.get(key)
+            if lbl is not None and img_path and getattr(lbl, "_current_path", None) != img_path:
+                lbl.set_image(img_path)
 
     def _show_empty_preview_tab(self, placeholder_text: str = "この実験ログには画像ファイル (.png) がありません"):
         """画像が存在しない、または選択解除時のプレースホルダー表示"""
@@ -767,6 +927,7 @@ class ExperimentExplorerWidget(QWidget):
         self.preview_tabs.clear()
         self._current_tab_keys = []
         self._tab_preview_labels = {}
+        self._tab_image_paths = {}
 
         lbl = ImagePreviewLabel(placeholder_text)
         lbl.show_placeholder(placeholder_text)
@@ -799,14 +960,11 @@ class ExperimentExplorerWidget(QWidget):
 
         self.preview_tabs.blockSignals(True)
 
-        # 3. 現在のタブ構成と一致するか判定（同一構成なら画像差し替えのみ行いチラつき防止）
-        if sorted_prefixes == self._current_tab_keys:
-            for prefix in sorted_prefixes:
-                img_path = record.images.get(prefix)
-                if prefix in self._tab_preview_labels:
-                    self._tab_preview_labels[prefix].set_image(img_path)
-        else:
-            # タブの再構築
+        # 3. 画像パス一覧を記憶
+        self._tab_image_paths = {p: record.images.get(p) for p in sorted_prefixes}
+
+        # 4. 現在のタブ構成と一致するか判定（異なる場合はタブを再構築）
+        if sorted_prefixes != self._current_tab_keys:
             self.preview_tabs.clear()
             self._tab_preview_labels.clear()
             self._current_tab_keys = sorted_prefixes
@@ -814,11 +972,10 @@ class ExperimentExplorerWidget(QWidget):
             for prefix in sorted_prefixes:
                 display_title = get_image_display_title(prefix)
                 lbl = ImagePreviewLabel(f"{display_title}\n画像が読み込めません")
-                lbl.set_image(record.images.get(prefix))
                 self._tab_preview_labels[prefix] = lbl
                 self.preview_tabs.addTab(lbl, display_title)
 
-        # 4. タブ選択の維持（プレフィックス名キー方式）
+        # 5. タブ選択の決定（プレフィックス名キー方式）
         target_idx = -1
         if self._last_selected_tab_key and self._last_selected_tab_key in self._current_tab_keys:
             target_idx = self._current_tab_keys.index(self._last_selected_tab_key)
@@ -829,6 +986,20 @@ class ExperimentExplorerWidget(QWidget):
             self.preview_tabs.setCurrentIndex(target_idx)
 
         self.preview_tabs.blockSignals(False)
+
+        # 6. アクティブなタブのみ最優先でデコードし、他タブは遅延待機
+        active_key = self._current_tab_keys[target_idx] if 0 <= target_idx < len(self._current_tab_keys) else None
+        for prefix in sorted_prefixes:
+            lbl = self._tab_preview_labels.get(prefix)
+            if not lbl:
+                continue
+            img_path = self._tab_image_paths.get(prefix)
+            if prefix == active_key:
+                lbl.set_image(img_path)
+            else:
+                if lbl._current_path != img_path:
+                    lbl._current_path = None
+                    lbl.show_placeholder("タブを開くと読み込みます")
 
     def _clear_preview(self):
         """プレビュー表示をクリア"""
