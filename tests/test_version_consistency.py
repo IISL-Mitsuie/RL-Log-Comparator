@@ -115,3 +115,25 @@ def test_readme_no_concrete_version_filename():
     matches = re.findall(r'_v\d+\.\d+\.\d+', content)
     assert not matches, f"Concrete version filename pattern found in README.md: {matches}"
 
+
+def test_readme_no_control_characters():
+    """README.md にエスケープ破損による制御文字（\\x08, \\x0b 等）が含まれていないこと"""
+    readme_path = ROOT_DIR / "README.md"
+    assert readme_path.exists(), f"README.md not found: {readme_path}"
+
+    content = readme_path.read_text(encoding="utf-8")
+    assert "\x08" not in content, "README.md contains backspace control character (\\x08)"
+    assert "\x0b" not in content, "README.md contains vertical tab control character (\\x0b)"
+
+
+def test_spec_uses_collect_submodules():
+    """packaging/RL-Log-Comparator.spec が collect_submodules('src') を使用し個別列挙がないこと"""
+    spec_path = ROOT_DIR / "packaging" / "RL-Log-Comparator.spec"
+    assert spec_path.exists(), f"spec file not found: {spec_path}"
+
+    content = spec_path.read_text(encoding="utf-8")
+    assert "collect_submodules('src')" in content, "spec must use collect_submodules('src')"
+    # 'src.config', 'src.core' などの個別列挙がないこと
+    assert "'src.config'" not in content, "spec hiddenimports should not individually list 'src.config'"
+    assert "'src.ui'" not in content, "spec hiddenimports should not individually list 'src.ui'"
+

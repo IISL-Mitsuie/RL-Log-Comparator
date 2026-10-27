@@ -36,29 +36,7 @@ hiddenimports = [
     'PySide6.QtGui',
     'PySide6.QtWidgets',
     'src_bootstrap',
-    'src',
-    'src.config',
-    'src.core',
-    'src.core.env',
-    'src.core.paths',
-    'src.core.history',
-    'src.core.parsers',
-    'src.core.parsers.experiment',
-    'src.core.parsers.yaml_diff',
-    'src.core.parsers.image_pair',
-    'src.core.parsers.csv_metric',
-    'src.core.updater',
-    'src.ui',
-    'src.ui.main_window',
-    'src.ui.dialogs',
-    'src.ui.dialogs.update_dialog',
-    'src.ui.widgets',
-    'src.ui.widgets.sync_graphics_view',
-    'src.ui.widgets.yaml_diff_widget',
-    'src.ui.widgets.image_compare_widget',
-    'src.ui.widgets.csv_compare_widget',
-    'src.ui.widgets.log_spec_widget',
-]
+] + collect_submodules('src')
 
 
 a = Analysis(
