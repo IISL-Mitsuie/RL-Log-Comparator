@@ -6,12 +6,12 @@ spec_dir = os.path.abspath(SPECPATH)
 project_root = os.path.abspath(os.path.join(spec_dir, '..')) if os.path.basename(spec_dir) == 'packaging' else spec_dir
 main_script = os.path.join(project_root, 'main.py')
 icon_path = os.path.join(project_root, 'packaging', 'app_icon.ico')
-version_file = os.path.join(project_root, 'packaging', 'version_info.txt')
+version_file = os.environ.get("RLLC_VERSION_INFO", os.path.join(project_root, 'packaging', 'version_info.txt'))
 data_format_path = os.path.join(project_root, 'DATA_FORMAT.md')
 
 fonts_dir = os.path.join(project_root, 'packaging', 'fonts')
 
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 datas = []
 if os.path.exists(data_format_path):
@@ -36,29 +36,7 @@ hiddenimports = [
     'PySide6.QtGui',
     'PySide6.QtWidgets',
     'src_bootstrap',
-    'src',
-    'src.config',
-    'src.core',
-    'src.core.env',
-    'src.core.paths',
-    'src.core.history',
-    'src.core.parsers',
-    'src.core.parsers.experiment',
-    'src.core.parsers.yaml_diff',
-    'src.core.parsers.image_pair',
-    'src.core.parsers.csv_metric',
-    'src.core.updater',
-    'src.ui',
-    'src.ui.main_window',
-    'src.ui.dialogs',
-    'src.ui.dialogs.update_dialog',
-    'src.ui.widgets',
-    'src.ui.widgets.sync_graphics_view',
-    'src.ui.widgets.yaml_diff_widget',
-    'src.ui.widgets.image_compare_widget',
-    'src.ui.widgets.csv_compare_widget',
-    'src.ui.widgets.log_spec_widget',
-]
+] + collect_submodules('src')
 
 
 a = Analysis(
