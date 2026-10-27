@@ -74,6 +74,31 @@ class TestUiCsvCompareWidget(unittest.TestCase):
         ax = widget.figure.axes[0]
         self.assertTrue(any("X 軸の単位が A/B で異なります" in t.get_text() for t in ax.texts))
 
+    def test_independent_mode_generic_step_csv_x_label(self):
+        """個別タスク選択モードで step 列を持つ CSV を読み込んだ際、X 軸ラベルに step が反映される (#34)"""
+        folder = self._make_csv_folder("indep_gen_step", {"step": [10, 20, 30], "reward": [1.0, 2.0, 3.0]})
+        widget = CsvCompareWidget()
+        widget.load_csvs(folder, folder)
+        widget.cb_independent_tasks.setChecked(True)
+
+        self.assertIn("step", widget.txt_xlabel.text())
+        self.assertNotIn("Task Episode", widget.txt_xlabel.text())
+        ax = widget.figure.axes[0]
+        self.assertIn("step", ax.get_xlabel())
+
+    def test_independent_mode_x_axis_kind_mismatch_label(self):
+        """個別タスク選択モードで A/B の X 軸種別が異なる際に注記が出ること (#34)"""
+        folder_a = self._make_csv_folder("indep_ep_axis", {"Episode": [1, 2, 3], "reward": [1.0, 2.0, 3.0]})
+        folder_b = self._make_csv_folder("indep_step_axis", {"step": [10, 20, 30], "reward": [1.0, 2.0, 3.0]})
+        widget = CsvCompareWidget()
+        widget.load_csvs(folder_a, folder_b)
+        widget.cb_independent_tasks.setChecked(True)
+
+        self.assertTrue(widget.txt_xlabel.text().startswith("A: "))
+        self.assertIn(" / B: ", widget.txt_xlabel.text())
+        ax = widget.figure.axes[0]
+        self.assertTrue(any("X 軸の単位が A/B で異なります" in t.get_text() for t in ax.texts))
+
     def test_x_label_from_side_with_data(self):
         """指標が片側にしかない場合、データがある側の X 軸ラベルを使う (ISSUE-04)"""
         folder_a = self._make_csv_folder("ep_only", {"Episode": [1, 2], "reward": [1.0, 2.0]})
