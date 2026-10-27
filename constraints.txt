@@ -1,0 +1,39 @@
+# constraints.txt
+#
+# 配布バイナリ・インストーラーのビルド環境パッケージバージョン固定用ファイル
+# 作成日: 2026-10-27
+#
+# 更新手順:
+# 1. 一時仮想環境を作成: python -m venv .venv_build
+# 2. pipを更新: .venv_build\Scripts\python -m pip install --upgrade pip
+# 3. ビルド依存をインストール: .venv_build\Scripts\python -m pip install -r requirements-build.txt
+# 4. バージョンを出力: .venv_build\Scripts\python -m pip freeze > constraints.txt
+# 5. 本コメントヘッダーを復元し、変更内容を確認
+#
+altgraph==0.17.5
+contourpy==1.4.0
+cycler==0.12.1
+fonttools==4.67.0
+kiwisolver==1.5.1
+matplotlib==3.11.2
+numpy==2.5.4
+packaging==26.3
+pandas==3.1.0
+pefile==2024.8.26
+pillow==13.0.0
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.9
+pyparsing==3.3.3
+PySide6==6.12.0
+PySide6_Addons==6.12.0
+PySide6_Essentials==6.12.0
+PySide6_Pdf==6.12.0.140
+PySide6_WebEngine==6.12.0.140
+python-dateutil==3.0.0
+pywin32-ctypes==0.2.3
+PyYAML==6.0.3
+setuptools==84.2.1
+shiboken6==6.12.0
+six==1.17.0
+tzdata==2026.5
+

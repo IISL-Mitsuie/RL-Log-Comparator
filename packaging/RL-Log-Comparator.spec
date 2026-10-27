@@ -6,12 +6,12 @@ spec_dir = os.path.abspath(SPECPATH)
 project_root = os.path.abspath(os.path.join(spec_dir, '..')) if os.path.basename(spec_dir) == 'packaging' else spec_dir
 main_script = os.path.join(project_root, 'main.py')
 icon_path = os.path.join(project_root, 'packaging', 'app_icon.ico')
-version_file = os.path.join(project_root, 'packaging', 'version_info.txt')
+version_file = os.environ.get("RLLC_VERSION_INFO", os.path.join(project_root, 'packaging', 'version_info.txt'))
 data_format_path = os.path.join(project_root, 'DATA_FORMAT.md')
 
 fonts_dir = os.path.join(project_root, 'packaging', 'fonts')
 
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 datas = []
 if os.path.exists(data_format_path):

@@ -129,10 +129,10 @@ RL-Log-Comparator/
 ---
 
 ### 3.1. インストーラーを使用する場合 (推奨)
-1. 配布ファイル（GitHub Releases の Assets）から `RL_Log_Comparator_Setup_v1.3.2.exe` をダウンロードして実行します。
+1. 配布ファイル（GitHub Releases の Assets）から `RL_Log_Comparator_Setup_v<バージョン>.exe` をダウンロードして実行します。
 2. 画面の指示に従ってインストールします（管理者権限不要、ユーザー個別領域 `{localappdata}\Programs\RL-Log-Comparator` に安全に配置されます）。
 3. デスクトップまたはスタートメニューの「RL-Log-Comparator」ショートカットから起動します。
-4. ※ インストーラを使用しない場合は、ポータブル版 ZIP（`RL_Log_Comparator_v1.3.2_portable.zip`）を解凍して `RL-Log-Comparator.exe` を直接起動することも可能です。
+4. ※ インストーラを使用しない場合は、ポータブル版 ZIP（`RL_Log_Comparator_v<バージョン>_portable.zip`）を解凍して `RL-Log-Comparator.exe` を直接起動することも可能です。
 
 ---
 
@@ -226,27 +226,43 @@ git config core.hooksPath .githooks
 
 ## 5. インストーラー・バイナリのビルド手順
 
-本リポジトリには、PyInstaller による高速起動バイナリ作成と Inno Setup によるインストーラー作成を全自動で行うスクリプトが用意されています。
+本リポジトリには、PyInstaller による高速起動バイナリ作成と Inno Setup によるインストーラーおよびポータブル版 ZIP 作成を全自動で行うスクリプトが用意されています。
+バージョン番号は [src/config.py](src/config.py) の APP_VERSION で一元管理されており、ビルド時に自動で exe のプロパティ、インストーラー、ZIP ファイル名へ反映されます。
 
 ### 前提条件
 - Python 3.12 以上
-- [Inno Setup 6](https://jrsoftware.org/isdl.php)（Windows セットアップインストーラーを作成する場合）
+- [Inno Setup 6](https://jrsoftware.org/isdl.php)（Windows セットアップインストーラーを作成する場合。未インストールの場合はバイナリとポータブル ZIP のみ生成されます）
 
 ### ビルド実行
-リポジトリルートにある [`build_all.bat`](build_all.bat) をダブルクリック（またはコマンドラインから実行）します：
+リポジトリルートにある [uild_all.bat](build_all.bat) を実行（またはコマンドラインから引数を指定して実行）します：
 
-```bash
+`ash
 build_all.bat
 # または
 python packaging/build.py
-```
+`
+
+#### オプション引数
+- --use-current-env: %TEMP% 内のクリーン仮想環境の作成をスキップし、現在実行中の Python 環境（sys.executable）をそのまま使ってビルドします（オフライン環境等向け）。
+- --skip-tests: ビルド開始前の pytest スイート（pytest -q）の実行をスキップします。
+
+`ash
+# 例: テストをスキップして現在の環境で高速ビルド
+python packaging/build.py --use-current-env --skip-tests
+# bat 経由でも引数をそのまま渡せます
+build_all.bat --use-current-env --skip-tests
+`
 
 ### ビルドフローの詳細
-1. ローカルの `%TEMP%` 内に一時的なクリーン仮想環境を作成（Google Drive などのクラウド同期ロックや権限問題を完全回避）。
-2. [`requirements.txt`](requirements.txt) から最小限の依存関係のみをインストール（不要な PyTorch や Webots などの重厚ライブラリを巻き込まず、配布サイズを最小化）。
-3. PyInstaller（[`packaging/RL-Log-Comparator.spec`](packaging/RL-Log-Comparator.spec)）により `--onedir` 形式で高速起動可能な単体実行ファイル群（`dist/RL-Log-Comparator/`）をビルド。
-4. Inno Setup 6 (`ISCC.exe`) を自動検知し、[`packaging/installer.iss`](packaging/installer.iss) を用いて配布用セットアップインストーラー（`dist_installer/RL_Log_Comparator_Setup_v1.3.2.exe`）を生成。
-5. ビルド完了後、中間の一時仮想環境・キャッシュを自動クリーンアップ。
+1. **事前テスト実行**: 現在の Python 環境で pytest -q を実行し、既存テスト全件の通過を確認（失敗時はビルドを自動中止、--skip-tests で省略可能）。
+2. **クリーン一時仮想環境の作成**: ローカルの %TEMP% 内に一時的な独立仮想環境を作成（Google Drive などのクラウド同期ロックや権限問題を完全回避）。
+3. **再現性のある依存インストール**: [
+equirements-build.txt](requirements-build.txt) および [constraints.txt](constraints.txt)（バージョン固定制約）を用いて、ビルドに必要な最小限の依存関係のみをインストール。
+4. **バージョン情報の動的生成**: [src/config.py](src/config.py) の APP_VERSION を読み取り、[packaging/version_info.template.txt](packaging/version_info.template.txt) から一時的な Windows バージョンリソース情報（ersion_info.txt）を生成。
+5. **バイナリビルド**: PyInstaller（[packaging/RL-Log-Comparator.spec](packaging/RL-Log-Comparator.spec)）により --onedir 形式で高速起動可能な単体実行ファイル群（dist/RL-Log-Comparator/）をビルド。
+6. **ポータブル版 ZIP の生成**: 配布用のポータブルアーカイブ（dist_installer/RL_Log_Comparator_v<バージョン>_portable.zip）を自動生成。
+7. **セットアップインストーラー生成**: Inno Setup 6 (ISCC.exe) を自動検知し、/DMyAppVersion=<バージョン> を注入して [packaging/installer.iss](packaging/installer.iss) からセットアップインストーラー（dist_installer/RL_Log_Comparator_Setup_v<バージョン>.exe）を生成。
+8. **成果物の配置とクリーンアップ**: 生成物をプロジェクトルートの dist/ および dist_installer/ にコピーし、一時仮想環境や作業ディレクトリを自動削除。
 
 ---
 
