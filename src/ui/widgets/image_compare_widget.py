@@ -16,7 +16,9 @@ from src.core.parsers.experiment import get_experiment_info
 from src.core.parsers.image_pair import (
     detect_image_pairs, get_folder_image_list
 )
-from src.ui.widgets.sync_graphics_view import SyncGraphicsView
+from src.ui.widgets.sync_graphics_view import (
+    SyncGraphicsView, ViewSyncController
+)
 
 
 class ImageCompareWidget(QWidget):
@@ -94,8 +96,8 @@ class ImageCompareWidget(QWidget):
         lay_b.addWidget(self.view_b)
         right_splitter.addWidget(self.box_b)
 
-        self.view_a.set_partner(self.view_b)
-        self.view_b.set_partner(self.view_a)
+        self.sync_controller = ViewSyncController(self)
+        self.sync_controller.register(self.view_a, self.view_b)
 
         self.main_splitter.addWidget(right_splitter)
         self.main_splitter.setSizes([260, 980])
@@ -204,13 +206,10 @@ class ImageCompareWidget(QWidget):
         if file_path and os.path.exists(file_path):
             pixmap = QPixmap(file_path)
             if not pixmap.isNull():
-                scene.addPixmap(pixmap)
+                item = scene.addPixmap(pixmap)
+                item.setTransformationMode(Qt.TransformationMode.SmoothTransformation)
                 scene.setSceneRect(pixmap.rect().toRectF())
 
     def _reset_views(self) -> None:
-        self.view_a.resetTransform()
-        self.view_b.resetTransform()
-        if not self.scene_a.itemsBoundingRect().isEmpty():
-            self.view_a.fitInView(self.scene_a.itemsBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
-        if not self.scene_b.itemsBoundingRect().isEmpty():
-            self.view_b.fitInView(self.scene_b.itemsBoundingRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        self.view_a.fit_to_scene()
+        self.view_b.fit_to_scene()
