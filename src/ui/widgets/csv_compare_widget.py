@@ -12,7 +12,8 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem, QSlider, QLabel, QCheckBox, QComboBox,
     QLineEdit, QPushButton, QSpinBox
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
+import pandas as pd
 
 import numpy as np
 import matplotlib as mpl
@@ -62,6 +63,11 @@ class CsvCompareWidget(QWidget):
         self.info_b = "フォルダ B"
         self.task_options_a: list[TaskOption] = []
         self.task_options_b: list[TaskOption] = []
+        self._task_df_cache: dict[tuple[str, int, Optional[str]], Optional[pd.DataFrame]] = {}
+        self._redraw_timer = QTimer(self)
+        self._redraw_timer.setSingleShot(True)
+        self._redraw_timer.setInterval(100)
+        self._redraw_timer.timeout.connect(self.update_chart)
         self._need_reset_texts = True
         self._init_ui()
 
@@ -267,6 +273,13 @@ class CsvCompareWidget(QWidget):
 
         self.figure = Figure(figsize=(8, 5), dpi=100, facecolor='#ffffff')
         self.canvas = FigureCanvasQTAgg(self.figure)
+        orig_draw_idle = self.canvas._draw_idle
+        def _safe_draw_idle():
+            try:
+                orig_draw_idle()
+            except RuntimeError:
+                pass
+        self.canvas._draw_idle = _safe_draw_idle
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
 
         right_lay.addWidget(self.toolbar)
@@ -280,13 +293,17 @@ class CsvCompareWidget(QWidget):
         self.list_metrics.setCurrentRow(0)
         self._load_chart_font_settings()
 
+    def _schedule_redraw(self) -> None:
+        """タイマーによるデバウンス再描画をスケジュール（100ms 後に update_chart を実行）"""
+        self._redraw_timer.start(100)
+
     def _on_ma_changed(self, val: int) -> None:
         self.lbl_ma_val.setText(f"{val} ep")
-        self.update_chart()
+        self._schedule_redraw()
 
     def _on_custom_text_changed(self, text: str) -> None:
         """テキスト入力変更時のリアルタイム再描画"""
-        self.update_chart()
+        self._schedule_redraw()
 
     def _on_custom_legend_changed(self, text: str) -> None:
         """後方互換: 凡例テキスト変更時のリアルタイム再描画"""
@@ -416,8 +433,20 @@ class CsvCompareWidget(QWidget):
         self._need_reset_texts = True
         self.update_chart()
 
+    def _get_task_dataframe(self, side: str, opt: TaskOption) -> Optional[pd.DataFrame]:
+        """タスク別 DataFrame をキャッシュから取得、または読み込んでキャッシュに保持"""
+        folder = self.folder_a if side == "A" else self.folder_b
+        base_df = self.df_a if side == "A" else self.df_b
+        cache_key = (folder, opt.task_id, opt.csv_path)
+        if cache_key in self._task_df_cache:
+            return self._task_df_cache[cache_key]
+        df = load_task_dataframe(base_df, folder, opt)
+        self._task_df_cache[cache_key] = df
+        return df
+
     def load_csvs(self, folder_a: str, folder_b: str) -> None:
         """フォルダA/Bの CSV ログを読み込んでタスクリスト、指標リストおよびチャートを更新"""
+        self._task_df_cache.clear()
         self._csv_load_errors = {}
         self.folder_a = folder_a
         self.folder_b = folder_b
@@ -542,6 +571,7 @@ class CsvCompareWidget(QWidget):
 
     def update_chart(self) -> None:
         """選択指標・タスク・凡例設定に基づきグラフを描画更新"""
+        self._redraw_timer.stop()
         self.figure.clear()
         self.figure.patch.set_facecolor('#ffffff')
         ax = self.figure.add_subplot(111, facecolor='#ffffff')
@@ -567,8 +597,8 @@ class CsvCompareWidget(QWidget):
             opt_a: Optional[TaskOption] = self.combo_task_a.currentData()
             opt_b: Optional[TaskOption] = self.combo_task_b.currentData()
 
-            task_df_a = load_task_dataframe(self.df_a, self.folder_a, opt_a) if opt_a else None
-            task_df_b = load_task_dataframe(self.df_b, self.folder_b, opt_b) if opt_b else None
+            task_df_a = self._get_task_dataframe("A", opt_a) if opt_a else None
+            task_df_b = self._get_task_dataframe("B", opt_b) if opt_b else None
 
             task_name_a = opt_a.short_name if opt_a else "タスク A"
             task_name_b = opt_b.short_name if opt_b else "タスク B"
@@ -772,4 +802,4 @@ class CsvCompareWidget(QWidget):
         except Exception:
             logger.debug("グラフのレイアウト調整に失敗しました", exc_info=True)
 
-        self.canvas.draw()
+        self.canvas.draw_idle()

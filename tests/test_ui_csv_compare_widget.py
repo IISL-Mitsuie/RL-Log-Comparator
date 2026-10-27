@@ -267,6 +267,7 @@ class TestUiCsvCompareWidget(unittest.TestCase):
         # 凡例A・Bを任意文字列にカスタム設定 (案A: 完全上書き)
         widget.txt_legend_a.setText("提案手法 (Proposed)")
         widget.txt_legend_b.setText("従来手法 (Baseline)")
+        widget.update_chart()
 
         ax = widget.figure.axes[0]
         legend = ax.get_legend()
@@ -315,6 +316,7 @@ class TestUiCsvCompareWidget(unittest.TestCase):
         widget.txt_title.setText("カスタムタイトル (My Curve)")
         widget.txt_xlabel.setText("Custom Episode")
         widget.txt_ylabel.setText("Custom Reward")
+        widget.update_chart()
 
         ax = widget.figure.axes[0]
         self.assertEqual(ax.get_title(), "カスタムタイトル (My Curve)")
@@ -325,6 +327,7 @@ class TestUiCsvCompareWidget(unittest.TestCase):
         widget.txt_title.setText("")
         widget.txt_xlabel.setText("")
         widget.txt_ylabel.setText("")
+        widget.update_chart()
 
         ax = widget.figure.axes[0]
         self.assertEqual(ax.get_title(), "")
@@ -412,6 +415,124 @@ class TestUiCsvCompareWidget(unittest.TestCase):
 
         # 6. 保存時解像度 (savefig.dpi) が 300 であることの確認
         self.assertEqual(plt.rcParams['savefig.dpi'], 300)
+
+
+
+    def test_task_df_cache_prevents_reloading_on_text_changes(self):
+        """個別タスク選択モードでテキスト入力しても load_task_dataframe が重複呼び出しされない (ISSUE-06)"""
+        import pandas as pd
+        from unittest.mock import patch
+
+        folder_cl = os.path.join(self.test_dir, "cache_exp")
+        os.makedirs(folder_cl, exist_ok=True)
+        df_cl = pd.DataFrame({
+            "Task_ID": [1, 1, 2, 2],
+            "Task_Episode": [1, 2, 1, 2],
+            "Total_Episode": [1, 2, 3, 4],
+            "Steps": [10, 20, 15, 25],
+            "TotalReward": [1.0, 2.0, 3.0, 4.0],
+            "Is_Converged": [False, True, False, True]
+        })
+        df_cl.to_csv(os.path.join(folder_cl, "learning_log_test.csv"), index=False)
+
+        widget = CsvCompareWidget()
+        widget.load_csvs(folder_cl, folder_cl)
+        widget.cb_independent_tasks.setChecked(True)
+        widget.combo_task_a.setCurrentIndex(0)
+        widget.combo_task_b.setCurrentIndex(1)
+        widget.update_chart()
+
+        self.assertGreaterEqual(len(widget._task_df_cache), 2)
+
+        with patch("src.ui.widgets.csv_compare_widget.load_task_dataframe") as mock_load:
+            for ch in "HelloWorld":
+                widget.txt_title.setText(widget.txt_title.text() + ch)
+            widget.update_chart()
+            mock_load.assert_not_called()
+
+    def test_task_df_cache_cleared_on_load_csvs(self):
+        """フォルダ再読み込み時にタスク別 DataFrame キャッシュが破棄される (ISSUE-06)"""
+        import pandas as pd
+
+        folder_cl = os.path.join(self.test_dir, "cache_clear_exp")
+        os.makedirs(folder_cl, exist_ok=True)
+        df_cl = pd.DataFrame({
+            "Task_ID": [1, 1, 2, 2],
+            "Task_Episode": [1, 2, 1, 2],
+            "Total_Episode": [1, 2, 3, 4],
+            "Steps": [10, 20, 15, 25],
+            "TotalReward": [1.0, 2.0, 3.0, 4.0],
+            "Is_Converged": [False, True, False, True]
+        })
+        csv_file = os.path.join(folder_cl, "learning_log_test.csv")
+        df_cl.to_csv(csv_file, index=False)
+
+        widget = CsvCompareWidget()
+        widget.load_csvs(folder_cl, folder_cl)
+        widget.cb_independent_tasks.setChecked(True)
+        widget.combo_task_a.setCurrentIndex(0)
+        widget.combo_task_b.setCurrentIndex(1)
+        widget.update_chart()
+        self.assertGreaterEqual(len(widget._task_df_cache), 2)
+
+        old_keys = set(widget._task_df_cache.keys())
+        self.assertGreater(len(old_keys), 0)
+
+        # 通常モードで再読み込みした場合、キャッシュが空になる
+        widget.cb_independent_tasks.setChecked(False)
+        widget.load_csvs(self.folder_a, self.folder_b)
+        self.assertEqual(len(widget._task_df_cache), 0)
+        self.assertFalse(any(k in widget._task_df_cache for k in old_keys))
+
+        # 新しいデータを書き込んで再読み込みした場合、新しいデータが反映される
+        df_cl2 = pd.DataFrame({
+            "Task_ID": [1, 1, 2, 2],
+            "Task_Episode": [1, 2, 1, 2],
+            "Total_Episode": [1, 2, 3, 4],
+            "Steps": [100, 200, 150, 250],
+            "TotalReward": [999.0, 999.0, 888.0, 888.0],
+            "Is_Converged": [False, True, False, True]
+        })
+        df_cl2.to_csv(csv_file, index=False)
+        widget.load_csvs(folder_cl, folder_cl)
+        widget.cb_independent_tasks.setChecked(True)
+        widget.combo_task_a.setCurrentIndex(0)
+        widget.update_chart()
+
+        opt_a = widget.combo_task_a.currentData()
+        cached_df = widget._get_task_dataframe("A", opt_a)
+        self.assertIsNotNone(cached_df)
+        self.assertEqual(cached_df["TotalReward"].iloc[0], 999.0)
+
+    def test_debounce_reduces_update_chart_calls_on_slider(self):
+        """スライダーを連続で動かしてもデバウンスにより update_chart の呼び出しが抑止される (ISSUE-06)"""
+        from unittest.mock import patch
+
+        widget = CsvCompareWidget()
+        widget.load_csvs(self.folder_a, self.folder_b)
+
+        with patch.object(widget, "update_chart") as mock_update:
+            for val in range(1, 51):
+                widget.slider_ma.setValue(val)
+            mock_update.assert_not_called()
+            self.assertTrue(widget._redraw_timer.isActive())
+            widget._redraw_timer.timeout.emit()
+            self.assertEqual(mock_update.call_count, 1)
+
+    def test_debounce_reduces_update_chart_calls_on_text_input(self):
+        """テキスト入力欄に連続入力してもデバウンスにより update_chart の呼び出しが抑止される (ISSUE-06)"""
+        from unittest.mock import patch
+
+        widget = CsvCompareWidget()
+        widget.load_csvs(self.folder_a, self.folder_b)
+
+        with patch.object(widget, "update_chart") as mock_update:
+            for ch in "1234567890":
+                widget.txt_title.setText(widget.txt_title.text() + ch)
+            mock_update.assert_not_called()
+            self.assertTrue(widget._redraw_timer.isActive())
+            widget._redraw_timer.timeout.emit()
+            self.assertEqual(mock_update.call_count, 1)
 
 
 if __name__ == "__main__":
