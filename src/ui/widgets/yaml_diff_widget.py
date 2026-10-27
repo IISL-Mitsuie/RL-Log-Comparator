@@ -1,3 +1,4 @@
+from typing import Any, Optional
 """
 ハイパーパラメータ (YAML) 差分比較ビューウィジェット
 """
@@ -62,20 +63,35 @@ class YamlDiffWidget(QWidget):
 
         layout.addWidget(self.tree)
 
-    def load_yamls(self, path_a: str, path_b: str) -> None:
-        """フォルダA/Bの YAML を読み込んでツリーを更新"""
-        self.info_a = get_experiment_info(path_a)
-        self.info_b = get_experiment_info(path_b)
+    def apply_data(
+        self,
+        info_a: str,
+        info_b: str,
+        yaml_a: Optional[dict[str, Any]],
+        failed_a: Optional[str],
+        yaml_b: Optional[dict[str, Any]],
+        failed_b: Optional[str],
+    ) -> None:
+        """解析済みのYAMLデータをツリーに反映"""
+        self.info_a = info_a
+        self.info_b = info_b
         self.tree.setHeaderLabels(["パラメータキー", f"A: {self.info_a}", f"B: {self.info_b}", "状態"])
 
-        self.yaml_a, failed_a = read_yaml_file_with_error(path_a)
-        self.yaml_b, failed_b = read_yaml_file_with_error(path_b)
-        # 「設定ファイルがない」と「解析に失敗した」を区別して表示する
+        self.yaml_a = yaml_a if yaml_a is not None else {}
+        self.yaml_b = yaml_b if yaml_b is not None else {}
         self._load_errors = [
             f"フォルダ {side} の設定ファイルの解析に失敗しました: {os.path.basename(failed)}（詳細はログを参照）"
             for side, failed in (("A", failed_a), ("B", failed_b)) if failed
         ]
         self.refresh_tree()
+
+    def load_yamls(self, path_a: str, path_b: str) -> None:
+        """フォルダA/Bの YAML を同期的に読み込んでツリーを更新（互換性のために維持）"""
+        info_a = get_experiment_info(path_a)
+        info_b = get_experiment_info(path_b)
+        yaml_a, failed_a = read_yaml_file_with_error(path_a)
+        yaml_b, failed_b = read_yaml_file_with_error(path_b)
+        self.apply_data(info_a, info_b, yaml_a, failed_a, yaml_b, failed_b)
 
     def refresh_tree(self) -> None:
         """現在の差分表示設定に基づいてツリーを再構築"""

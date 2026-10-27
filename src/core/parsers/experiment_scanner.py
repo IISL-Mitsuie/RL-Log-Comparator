@@ -6,7 +6,8 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
-from typing import Any, Optional
+import threading
+from typing import Any, Callable, Optional
 
 from src.core.parsers.image_pair import select_latest_image, get_folder_images_dict
 from src.core.parsers.safe_yaml import safe_load_yaml, find_config_file
@@ -296,7 +297,9 @@ def parse_single_experiment(folder_path: str) -> Optional[ExperimentLogRecord]:
 
 def scan_experiments_directory(
     root_dir: str,
-    recursive: bool = True
+    recursive: bool = True,
+    progress_callback: Optional[Callable[[int, str], None]] = None,
+    cancel_event: Optional[threading.Event] = None
 ) -> tuple[list[ExperimentLogRecord], list[str]]:
     """
     指定ディレクトリ配下の実験ログフォルダを走査し、
@@ -310,6 +313,8 @@ def scan_experiments_directory(
 
     if recursive:
         for root, dirs, _ in os.walk(root_dir):
+            if cancel_event is not None and cancel_event.is_set():
+                break
             dirs_to_remove = []
             for d in dirs:
                 full_path = os.path.join(root, d)
@@ -349,11 +354,17 @@ def scan_experiments_directory(
         "use_shield", "shield"
     }
 
-    for folder in candidate_folders:
+    for i, folder in enumerate(candidate_folders):
+        if cancel_event is not None and cancel_event.is_set():
+            logger.info('実験フォルダの走査がキャンセルされました (%d 件処理済み)', len(records))
+            break
         norm = os.path.abspath(folder)
         if norm in seen_paths:
             continue
         seen_paths.add(norm)
+
+        if progress_callback is not None:
+            progress_callback(i + 1, os.path.basename(folder))
 
         record = parse_single_experiment(norm)
         if record is not None:

@@ -4,14 +4,17 @@
 
 import logging
 import os
-from typing import Optional
+import threading
+from dataclasses import dataclass
+from typing import Any, Optional
+import pandas as pd
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGroupBox, QLabel, QComboBox, QPushButton, QTabWidget,
-    QFileDialog, QMessageBox, QStatusBar
+    QFileDialog, QMessageBox, QStatusBar, QProgressBar
 )
 from PySide6.QtGui import QIcon
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, Qt, QThreadPool, QTimer
 
 
 from src.config import (
@@ -23,11 +26,96 @@ from src.core.paths import get_app_icon_path
 from src.core.history import RecentFolderManager, SessionStateManager
 from src.core.updater import fetch_latest_release_info, UpdateInfo
 from src.ui.dialogs.update_dialog import UpdateDialog
+from src.core.parsers.experiment import get_experiment_info
+from src.core.parsers.yaml_diff import read_yaml_file_with_error
+from src.core.parsers.image_pair import detect_image_pairs, get_folder_image_list, ImagePairItem
+from src.core.parsers.csv_metric import read_log_csv, scan_task_options, CsvLoadError, TaskOption
+from src.ui.workers import FunctionWorker
 from src.ui.widgets.yaml_diff_widget import YamlDiffWidget
 from src.ui.widgets.image_compare_widget import ImageCompareWidget
 from src.ui.widgets.csv_compare_widget import CsvCompareWidget
 from src.ui.widgets.log_spec_widget import LogSpecWidget
 from src.ui.widgets.experiment_explorer_widget import ExperimentExplorerWidget
+
+
+@dataclass
+class ComparisonData:
+    """左右フォルダの比較に必要なデータをまとめたデータクラス"""
+    folder_a: str
+    folder_b: str
+    info_a: str
+    info_b: str
+    yaml_a: Optional[dict[str, Any]]
+    yaml_failed_a: Optional[str]
+    yaml_b: Optional[dict[str, Any]]
+    yaml_failed_b: Optional[str]
+    image_pairs: list[ImagePairItem]
+    folder_images_a: list[tuple[str, str, str]]
+    folder_images_b: list[tuple[str, str, str]]
+    df_a: Optional[pd.DataFrame]
+    df_failed_a: Optional[str]
+    df_b: Optional[pd.DataFrame]
+    df_failed_b: Optional[str]
+    task_options_a: list[TaskOption]
+    task_options_b: list[TaskOption]
+
+
+def _load_comparison_data(
+    folder_a: str,
+    folder_b: str,
+    cancel_event: Optional[threading.Event] = None
+) -> ComparisonData:
+    """ワーカースレッドで実行されるデータ読み込み処理"""
+    info_a = get_experiment_info(folder_a)
+    info_b = get_experiment_info(folder_b)
+
+    yaml_a, failed_a = read_yaml_file_with_error(folder_a)
+    yaml_b, failed_b = read_yaml_file_with_error(folder_b)
+
+    image_pairs = detect_image_pairs(folder_a, folder_b)
+    folder_images_a = get_folder_image_list(folder_a)
+    folder_images_b = get_folder_image_list(folder_b)
+
+    df_a = None
+    df_failed_a = None
+    try:
+        df_a = read_log_csv(folder_a, raise_on_error=True)
+    except CsvLoadError as e:
+        df_failed_a = os.path.basename(e.path)
+    except Exception as e:
+        df_failed_a = str(e)
+
+    df_b = None
+    df_failed_b = None
+    try:
+        df_b = read_log_csv(folder_b, raise_on_error=True)
+    except CsvLoadError as e:
+        df_failed_b = os.path.basename(e.path)
+    except Exception as e:
+        df_failed_b = str(e)
+
+    task_options_a = scan_task_options(folder_a, df_a)
+    task_options_b = scan_task_options(folder_b, df_b)
+
+    return ComparisonData(
+        folder_a=folder_a,
+        folder_b=folder_b,
+        info_a=info_a,
+        info_b=info_b,
+        yaml_a=yaml_a,
+        yaml_failed_a=failed_a,
+        yaml_b=yaml_b,
+        yaml_failed_b=failed_b,
+        image_pairs=image_pairs,
+        folder_images_a=folder_images_a,
+        folder_images_b=folder_images_b,
+        df_a=df_a,
+        df_failed_a=df_failed_a,
+        df_b=df_b,
+        df_failed_b=df_failed_b,
+        task_options_a=task_options_a,
+        task_options_b=task_options_b,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +152,14 @@ class ExperimentCompareApp(QMainWindow):
         self._history = self.history_mgr.load_history()
         self._last_loaded_a = ""
         self._last_loaded_b = ""
+        self._load_generation: int = 0
+        self._load_worker: Optional[FunctionWorker] = None
+
+        # 自動読み込み用デバウンスタイマー (500ms)
+        self._debounce_timer = QTimer(self)
+        self._debounce_timer.setSingleShot(True)
+        self._debounce_timer.setInterval(500)
+        self._debounce_timer.timeout.connect(self._check_auto_load)
         self._latest_update_info: Optional[UpdateInfo] = None
 
         self._init_ui()
@@ -92,6 +188,7 @@ class ExperimentCompareApp(QMainWindow):
         main_layout.addLayout(top_bar)
 
         # 1. フォルダ選択バー
+        folder_wrapper_lay = QHBoxLayout()
         folder_group = QGroupBox("比較対象実験ログフォルダ選択")
         folder_lay = QVBoxLayout(folder_group)
 
@@ -103,7 +200,8 @@ class ExperimentCompareApp(QMainWindow):
         self.combo_folder_a.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         if self.combo_folder_a.lineEdit():
             self.combo_folder_a.lineEdit().setPlaceholderText("実験ログフォルダへのパス (または履歴から選択)")
-            self.combo_folder_a.lineEdit().textChanged.connect(self._check_auto_load)
+            self.combo_folder_a.lineEdit().textChanged.connect(self._on_folder_text_changed)
+            self.combo_folder_a.lineEdit().editingFinished.connect(self._on_folder_editing_finished)
         self.combo_folder_a.activated.connect(lambda idx: self._on_combo_activated(is_target_a=True, index=idx))
         lay_a.addWidget(self.combo_folder_a, 1)
         btn_browse_a = QPushButton("参照...")
@@ -119,7 +217,8 @@ class ExperimentCompareApp(QMainWindow):
         self.combo_folder_b.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         if self.combo_folder_b.lineEdit():
             self.combo_folder_b.lineEdit().setPlaceholderText("実験ログフォルダへのパス (または履歴から選択)")
-            self.combo_folder_b.lineEdit().textChanged.connect(self._check_auto_load)
+            self.combo_folder_b.lineEdit().textChanged.connect(self._on_folder_text_changed)
+            self.combo_folder_b.lineEdit().editingFinished.connect(self._on_folder_editing_finished)
         self.combo_folder_b.activated.connect(lambda idx: self._on_combo_activated(is_target_a=False, index=idx))
         lay_b.addWidget(self.combo_folder_b, 1)
         btn_browse_b = QPushButton("参照...")
@@ -127,7 +226,18 @@ class ExperimentCompareApp(QMainWindow):
         lay_b.addWidget(btn_browse_b)
         folder_lay.addLayout(lay_b)
 
-        main_layout.addWidget(folder_group)
+        folder_wrapper_lay.addWidget(folder_group, 1)
+
+        # 読み込み中プログレスバー（不定表示）
+        self.load_progress_bar = QProgressBar()
+        self.load_progress_bar.setRange(0, 0)
+        self.load_progress_bar.setFixedWidth(100)
+        self.load_progress_bar.setTextVisible(False)
+        self.load_progress_bar.setToolTip("ログデータを読み込み中…")
+        self.load_progress_bar.setVisible(False)
+        folder_wrapper_lay.addWidget(self.load_progress_bar, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        main_layout.addLayout(folder_wrapper_lay)
 
 
         # 2. 中央: タブウィジェット
@@ -195,8 +305,18 @@ class ExperimentCompareApp(QMainWindow):
             combo.setEditText(current_text)
             combo.blockSignals(False)
 
+    def _on_folder_text_changed(self, text: str) -> None:
+        """フォルダ入力欄テキスト変更時のデバウンスタイマー起動"""
+        self._debounce_timer.start(500)
+
+    def _on_folder_editing_finished(self) -> None:
+        """フォルダ入力完了（Enterキーまたはフォーカス喪失）時の即時読み込み"""
+        self._debounce_timer.stop()
+        self._check_auto_load()
+
     def _on_combo_activated(self, is_target_a: bool, index: int) -> None:
         """コンボボックスのドロップダウン項目が選択された際のハンドラ"""
+        self._debounce_timer.stop()
         combo = self.combo_folder_a if is_target_a else self.combo_folder_b
         item_text = combo.itemText(index)
 
@@ -227,6 +347,7 @@ class ExperimentCompareApp(QMainWindow):
 
     def _browse_folder_smart(self, is_target_a: bool) -> None:
         """参照ボタン押下時: 前回の入力パス等を起点にフォルダ選択ダイアログを開き、履歴に追加"""
+        self._debounce_timer.stop()
         target_combo = self.combo_folder_a if is_target_a else self.combo_folder_b
         other_combo = self.combo_folder_b if is_target_a else self.combo_folder_a
 
@@ -260,18 +381,19 @@ class ExperimentCompareApp(QMainWindow):
                 if folder_a != self._last_loaded_a or folder_b != self._last_loaded_b:
                     self.load_all()
 
-    def load_folders(self, path_a: str, path_b: str) -> None:
-        """フォルダA/Bを指定して読み込み（CLI起動用。履歴には追加しない）"""
+    def load_folders(self, path_a: str, path_b: str, *, blocking: bool = True) -> None:
+        """フォルダA/Bを指定して読み込み（CLI起動・テスト用。履歴には追加しない）"""
+        self._debounce_timer.stop()
         self.combo_folder_a.blockSignals(True)
         self.combo_folder_b.blockSignals(True)
         self.combo_folder_a.setEditText(path_a)
         self.combo_folder_b.setEditText(path_b)
         self.combo_folder_a.blockSignals(False)
         self.combo_folder_b.blockSignals(False)
-        self.load_all()
+        self.load_all(blocking=blocking)
 
-    def load_all(self) -> None:
-        """フォルダA/Bのデータを各ビュー（YAML差分、画像比較、CSVグラフ）に読み込み"""
+    def load_all(self, *, blocking: bool = False) -> None:
+        """フォルダA/Bのデータを各ビュー（YAML差分、画像比較、CSVグラフ）に読み込み（非同期/同期対応）"""
         folder_a = self.combo_folder_a.currentText().strip()
         folder_b = self.combo_folder_b.currentText().strip()
 
@@ -284,19 +406,98 @@ class ExperimentCompareApp(QMainWindow):
         self._last_loaded_a = folder_a
         self._last_loaded_b = folder_b
 
-        # 1 つのタブが失敗しても、残りのタブは読み込む
-        loaders = [
-            ("ハイパーパラメータ差分 (YAML)", self.tab_yaml.load_yamls),
-            ("画像目視比較", self.tab_images.load_folders),
-            ("数値ログ比較グラフ (CSV)", self.tab_csv.load_csvs),
-        ]
-        failures: list[str] = []
-        for tab_name, load in loaders:
+        self._load_generation += 1
+        gen = self._load_generation
+
+        if blocking:
+            self.load_progress_bar.setVisible(False)
             try:
-                load(folder_a, folder_b)
+                data = _load_comparison_data(folder_a, folder_b)
+                self._apply_comparison_data(gen, data)
             except Exception as e:
-                logger.exception("%s タブの読み込みに失敗しました (A: %s, B: %s)", tab_name, folder_a, folder_b)
-                failures.append(f"{tab_name}: {_short_error(e)}")
+                logger.exception("同期データ読み込みに失敗しました (A: %s, B: %s)", folder_a, folder_b)
+                self.statusBar().showMessage(
+                    f"読み込み失敗: {_short_error(e)}", LOAD_ERROR_MESSAGE_MSEC
+                )
+            return
+
+        self.load_progress_bar.setVisible(True)
+        self.statusBar().showMessage("フォルダデータを読み込み中…")
+
+        worker = FunctionWorker(_load_comparison_data, folder_a, folder_b, generation=gen)
+        worker.signals.finished.connect(self._on_load_comparison_finished)
+        worker.signals.failed.connect(self._on_load_comparison_failed)
+        self._load_worker = worker
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_load_comparison_finished(self, gen: int, data: ComparisonData) -> None:
+        """非同期データ読み込み完了ハンドラ"""
+        if gen != self._load_generation:
+            return
+        self.load_progress_bar.setVisible(False)
+        self._apply_comparison_data(gen, data)
+
+    def _on_load_comparison_failed(self, gen: int, err_msg: str) -> None:
+        """非同期データ読み込み失敗ハンドラ"""
+        if gen != self._load_generation:
+            return
+        self.load_progress_bar.setVisible(False)
+        logger.error("データ読み込みワーカーでエラーが発生しました: %s", err_msg)
+        self.statusBar().showMessage(f"読み込み失敗: {err_msg}", LOAD_ERROR_MESSAGE_MSEC)
+
+    def _apply_comparison_data(self, gen: int, data: ComparisonData) -> None:
+        """読み込んだデータを各タブに反映（1つのタブが失敗しても他は適用）"""
+        if gen != self._load_generation:
+            return
+
+        failures: list[str] = []
+
+        # 1. YAML差分タブ
+        try:
+            self.tab_yaml.apply_data(
+                info_a=data.info_a,
+                info_b=data.info_b,
+                yaml_a=data.yaml_a,
+                failed_a=data.yaml_failed_a,
+                yaml_b=data.yaml_b,
+                failed_b=data.yaml_failed_b,
+            )
+        except Exception as e:
+            logger.exception("YAML タブの反映に失敗しました")
+            failures.append(f"ハイパーパラメータ差分 (YAML): {_short_error(e)}")
+
+        # 2. 画像比較タブ
+        try:
+            self.tab_images.apply_data(
+                folder_a=data.folder_a,
+                folder_b=data.folder_b,
+                info_a=data.info_a,
+                info_b=data.info_b,
+                pairs=data.image_pairs,
+                imgs_a=data.folder_images_a,
+                imgs_b=data.folder_images_b,
+            )
+        except Exception as e:
+            logger.exception("画像タブの反映に失敗しました")
+            failures.append(f"画像目視比較: {_short_error(e)}")
+
+        # 3. CSVグラフタブ
+        try:
+            self.tab_csv.apply_data(
+                folder_a=data.folder_a,
+                folder_b=data.folder_b,
+                info_a=data.info_a,
+                info_b=data.info_b,
+                df_a=data.df_a,
+                df_failed_a=data.df_failed_a,
+                df_b=data.df_b,
+                df_failed_b=data.df_failed_b,
+                task_options_a=data.task_options_a,
+                task_options_b=data.task_options_b,
+            )
+        except Exception as e:
+            logger.exception("CSV タブの反映に失敗しました")
+            failures.append(f"数値ログ比較グラフ (CSV): {_short_error(e)}")
 
         if failures:
             self.statusBar().showMessage(

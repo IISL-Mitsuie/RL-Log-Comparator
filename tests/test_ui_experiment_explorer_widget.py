@@ -45,7 +45,7 @@ def test_scan_and_populate_table(explorer_widget, tmp_path):
     create_dummy_experiment_folder(str(s_sap_dir), "output_20260801_100000", mode="S-SAP", learning_rate=0.01)
     create_dummy_experiment_folder(str(s_sap_dir), "output_20260802_150000", mode="S-SAP", learning_rate=0.02)
 
-    explorer_widget.set_root_directory(str(tmp_path))
+    explorer_widget.set_root_directory(str(tmp_path), blocking=True)
 
     # テーブルに2行存在すること
     assert explorer_widget.table.rowCount() == 2
@@ -76,7 +76,7 @@ def test_tab_index_preservation_on_selection_change(explorer_widget, tmp_path):
     create_dummy_experiment_folder(str(s_sap_dir), "output_20260801_100000", mode="S-SAP")
     create_dummy_experiment_folder(str(s_sap_dir), "output_20260802_150000", mode="S-SAP")
 
-    explorer_widget.set_root_directory(str(tmp_path))
+    explorer_widget.set_root_directory(str(tmp_path), blocking=True)
 
     # タブをインデックス2 (learning_steps) に切り替え
     explorer_widget.preview_tabs.setCurrentIndex(2)
@@ -111,7 +111,7 @@ def test_dynamic_tabs_with_different_images_and_no_images(explorer_widget, tmp_p
         images=[]
     )
 
-    explorer_widget.set_root_directory(str(tmp_path))
+    explorer_widget.set_root_directory(str(tmp_path), blocking=True)
 
     # 1行目 (output_20260802_150000: 画像なし) を選択
     explorer_widget.table.selectRow(0)
@@ -144,7 +144,7 @@ def test_signals_set_folder_a_and_b(explorer_widget, tmp_path, qtbot):
     s_sap_dir.mkdir()
     folder1 = create_dummy_experiment_folder(str(s_sap_dir), "output_20260801_100000", mode="S-SAP")
 
-    explorer_widget.set_root_directory(str(tmp_path))
+    explorer_widget.set_root_directory(str(tmp_path), blocking=True)
     explorer_widget.table.selectRow(0)
 
     # フォルダAセットのシグナル検証
@@ -166,7 +166,7 @@ def test_quick_filter(explorer_widget, tmp_path):
     create_dummy_experiment_folder(str(s_sap_dir), "output_20260801_100000", mode="S-SAP")
     create_dummy_experiment_folder(str(q_sap_dir), "output_20260802_150000", mode="Q-SAP")
 
-    explorer_widget.set_root_directory(str(tmp_path))
+    explorer_widget.set_root_directory(str(tmp_path), blocking=True)
     assert explorer_widget.table.rowCount() == 2
 
     # "Q-SAP" でフィルタ
@@ -189,7 +189,7 @@ def test_mode_and_shield_display_with_fixture_yaml(explorer_widget, tmp_path):
     exp_dir.mkdir(parents=True)
     shutil.copy(ref_yaml, exp_dir / "config_used_20260101_120000.yaml")
 
-    explorer_widget.set_root_directory(str(tmp_path))
+    explorer_widget.set_root_directory(str(tmp_path), blocking=True)
     assert explorer_widget.table.rowCount() == 1
 
     # モードが S-SAP、Shield が 無効 と表示されること
@@ -226,7 +226,7 @@ def test_column_visibility_integration(explorer_widget, tmp_path):
     s_sap_dir.mkdir()
     create_dummy_experiment_folder(str(s_sap_dir), "output_20260801_100000", mode="S-SAP", learning_rate=0.01)
 
-    explorer_widget.set_root_directory(str(tmp_path))
+    explorer_widget.set_root_directory(str(tmp_path), blocking=True)
     assert explorer_widget.table.isColumnHidden(0) is False  # モード列
     assert explorer_widget.table.isColumnHidden(1) is False  # Shield列
     assert explorer_widget.table.isColumnHidden(2) is False  # 学習種別列
@@ -256,7 +256,7 @@ def test_column_filter_apply_and_clear(explorer_widget, tmp_path):
     q_sap_dir.mkdir()
     create_dummy_experiment_folder(str(q_sap_dir), "output_20260801_110000", mode="Q-SAP")
 
-    explorer_widget.set_root_directory(str(tmp_path))
+    explorer_widget.set_root_directory(str(tmp_path), blocking=True)
     assert explorer_widget.table.rowCount() == 2
     assert explorer_widget.table.isRowHidden(0) is False
     assert explorer_widget.table.isRowHidden(1) is False
@@ -300,7 +300,7 @@ def test_column_filter_combined_with_quick_filter(explorer_widget, tmp_path):
     q1.mkdir()
     create_dummy_experiment_folder(str(q1), "output_20260801_200000", mode="Q-SAP", learning_rate=0.01)
 
-    explorer_widget.set_root_directory(str(tmp_path))
+    explorer_widget.set_root_directory(str(tmp_path), blocking=True)
     assert explorer_widget.table.rowCount() == 3
 
     # 列フィルタ: モード=S-SAP (s1, s2の2件)
@@ -324,7 +324,7 @@ def test_table_shift_wheel_horizontal_scroll(explorer_widget, tmp_path):
     s_dir = tmp_path / "S-SAP"
     s_dir.mkdir()
     create_dummy_experiment_folder(str(s_dir), "output_20260801_100000", mode="S-SAP")
-    explorer_widget.set_root_directory(str(tmp_path))
+    explorer_widget.set_root_directory(str(tmp_path), blocking=True)
 
     # 各列の幅を広げてウィンドウを小さくし、横スクロールバーを発生させる
     for c in range(explorer_widget.table.columnCount()):
@@ -372,7 +372,7 @@ def test_hide_column_by_header_action(explorer_widget, tmp_path):
     s_dir = tmp_path / "S-SAP"
     s_dir.mkdir()
     create_dummy_experiment_folder(str(s_dir), "output_20260801_100000", mode="S-SAP")
-    explorer_widget.set_root_directory(str(tmp_path))
+    explorer_widget.set_root_directory(str(tmp_path), blocking=True)
 
     # 初期状態: モード列(0), Shield列(1) ともに表示中
     assert explorer_widget.table.isColumnHidden(0) is False
@@ -403,13 +403,13 @@ def test_root_directory_history(explorer_widget, tmp_path):
     dir2.mkdir()
 
     # dir1 をスキャン
-    explorer_widget.set_root_directory(str(dir1))
+    explorer_widget.set_root_directory(str(dir1), blocking=True)
     assert explorer_widget.get_root_directory() == str(dir1.resolve())
     assert len(explorer_widget._history) == 1
     assert explorer_widget._history[0] == str(dir1.resolve())
 
     # dir2 をスキャン
-    explorer_widget.set_root_directory(str(dir2))
+    explorer_widget.set_root_directory(str(dir2), blocking=True)
     assert explorer_widget.get_root_directory() == str(dir2.resolve())
     assert len(explorer_widget._history) == 2
     assert explorer_widget._history[0] == str(dir2.resolve())
@@ -422,6 +422,7 @@ def test_root_directory_history(explorer_widget, tmp_path):
 
     # コンボボックスから dir1 を選択
     explorer_widget._on_root_combo_activated(1)
+    explorer_widget.scan_directory(blocking=True)
     assert explorer_widget.get_root_directory() == str(dir1.resolve())
 
     test_mgr.clear_history()
