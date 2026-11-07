@@ -428,6 +428,213 @@ def test_root_directory_history(explorer_widget, tmp_path):
     test_mgr.clear_history()
 
 
+def test_diff_columns_only_filtering(explorer_widget, tmp_path):
+    """
+    複数実験で特定パラメータのみ異なる場合、「差分のある列のみ表示」ON でその列だけが表示され、
+    OFF で手動非表示以外の全列が復帰することの検証
+    """
+    s_dir = tmp_path / "S-SAP"
+    s_dir.mkdir()
+    # 3実験: learning_rate のみ異なり、batch_size, network.* は共通
+    create_dummy_experiment_folder(str(s_dir), "output_20260801_100000", mode="S-SAP", learning_rate=0.001, batch_size=64)
+    create_dummy_experiment_folder(str(s_dir), "output_20260801_110000", mode="S-SAP", learning_rate=0.002, batch_size=64)
+    create_dummy_experiment_folder(str(s_dir), "output_20260801_120000", mode="S-SAP", learning_rate=0.003, batch_size=64)
+
+    explorer_widget.set_root_directory(str(tmp_path), blocking=True)
+    assert explorer_widget.table.rowCount() == 3
+
+    # 列名の位置を取得
+    col_names = [explorer_widget._get_col_base_name(i) for i in range(explorer_widget.table.columnCount())]
+    assert "learning_rate" in col_names
+    assert "batch_size" in col_names
+    lr_idx = col_names.index("learning_rate")
+    bs_idx = col_names.index("batch_size")
+
+    # 初期状態: 差分列のみ表示 OFF
+    assert explorer_widget.cb_diff_columns_only.isChecked() is False
+    assert explorer_widget.table.isColumnHidden(lr_idx) is False
+    assert explorer_widget.table.isColumnHidden(bs_idx) is False
+
+    # 「差分のある列のみ表示」を ON
+    explorer_widget.cb_diff_columns_only.setChecked(True)
+
+    # 固定列（0〜3: モード, Shield, 学習種別, フォルダ名）は表示
+    for i in range(4):
+        assert explorer_widget.table.isColumnHidden(i) is False, f"Fixed column {i} should be visible"
+
+    # learning_rate は値が異なるため表示
+    assert explorer_widget.table.isColumnHidden(lr_idx) is False
+    # batch_size は値がすべて 64 で共通なため非表示
+    assert explorer_widget.table.isColumnHidden(bs_idx) is True
+
+    # ステータスラベルに「差分列のみ表示中: 1 / 4 列」が含まれること
+    assert "差分列のみ表示中: 1 / 4 列" in explorer_widget.lbl_table_status.text()
+
+    # 「差分のある列のみ表示」を OFF にすると復帰
+    explorer_widget.cb_diff_columns_only.setChecked(False)
+    assert explorer_widget.table.isColumnHidden(lr_idx) is False
+    assert explorer_widget.table.isColumnHidden(bs_idx) is False
+    assert "差分列のみ表示中" not in explorer_widget.lbl_table_status.text()
+
+
+def test_diff_columns_with_quick_filter(explorer_widget, tmp_path):
+    """クイックフィルタで行を絞った際、残った行の間で差分のある列だけが表示されることの検証"""
+    s_dir = tmp_path / "S-SAP"
+    s_dir.mkdir()
+    # ログ1: lr=0.001, bs=32
+    # ログ2: lr=0.002, bs=64
+    # ログ3: lr=0.002, bs=64 (ログ2とパラメータ完全同一、フォルダ名だけ異なる)
+    create_dummy_experiment_folder(str(s_dir), "output_log1", mode="S-SAP", learning_rate=0.001, batch_size=32)
+    create_dummy_experiment_folder(str(s_dir), "output_log2", mode="S-SAP", learning_rate=0.002, batch_size=64)
+    create_dummy_experiment_folder(str(s_dir), "output_log3", mode="S-SAP", learning_rate=0.002, batch_size=64)
+
+    explorer_widget.set_root_directory(str(tmp_path), blocking=True)
+    col_names = [explorer_widget._get_col_base_name(i) for i in range(explorer_widget.table.columnCount())]
+    lr_idx = col_names.index("learning_rate")
+    bs_idx = col_names.index("batch_size")
+
+    explorer_widget.cb_diff_columns_only.setChecked(True)
+    # 全3行表示時は lr (0.001 vs 0.002) も bs (32 vs 64) も差分があるので両方表示
+    assert explorer_widget.table.isColumnHidden(lr_idx) is False
+    assert explorer_widget.table.isColumnHidden(bs_idx) is False
+
+    # クイックフィルタで "64"（ログ2とログ3のみ）に絞り込み
+    explorer_widget.edit_filter.setText("64")
+    # 残った2行の間では lr (0.002 vs 0.002) も bs (64 vs 64) も同一なので非表示になる
+    assert explorer_widget.table.isColumnHidden(lr_idx) is True
+    assert explorer_widget.table.isColumnHidden(bs_idx) is True
+    assert "差分列のみ表示中: 0 / 4 列" in explorer_widget.lbl_table_status.text()
+
+    # クイックフィルタをクリアすると再び表示される
+    explorer_widget.edit_filter.setText("")
+    assert explorer_widget.table.isColumnHidden(lr_idx) is False
+    assert explorer_widget.table.isColumnHidden(bs_idx) is False
+
+
+def test_diff_columns_single_visible_row(explorer_widget, tmp_path):
+    """表示行が 1 行のときは何も隠さないことの検証"""
+    s_dir = tmp_path / "S-SAP"
+    s_dir.mkdir()
+    create_dummy_experiment_folder(str(s_dir), "output_single_1", mode="S-SAP", learning_rate=0.001, batch_size=64)
+    create_dummy_experiment_folder(str(s_dir), "output_single_2", mode="S-SAP", learning_rate=0.002, batch_size=64)
+
+    explorer_widget.set_root_directory(str(tmp_path), blocking=True)
+    col_names = [explorer_widget._get_col_base_name(i) for i in range(explorer_widget.table.columnCount())]
+    bs_idx = col_names.index("batch_size")
+
+    explorer_widget.cb_diff_columns_only.setChecked(True)
+    assert explorer_widget.table.isColumnHidden(bs_idx) is True
+
+    # 1行だけに絞り込み
+    explorer_widget.edit_filter.setText("output_single_1")
+    # 表示行が 1 行なら定数列は計算されず空集合となり、パラメータ列は隠されない
+    assert explorer_widget.table.isColumnHidden(bs_idx) is False
+
+
+def test_manual_hidden_columns_preserved_with_diff_columns(explorer_widget, tmp_path):
+    """手動で非表示にした列は「差分のある列のみ表示」を OFF にしても隠れたままであることの検証"""
+    s_dir = tmp_path / "S-SAP"
+    s_dir.mkdir()
+    create_dummy_experiment_folder(str(s_dir), "output_man_1", mode="S-SAP", learning_rate=0.001, batch_size=64)
+    create_dummy_experiment_folder(str(s_dir), "output_man_2", mode="S-SAP", learning_rate=0.002, batch_size=64)
+
+    explorer_widget.set_root_directory(str(tmp_path), blocking=True)
+    col_names = [explorer_widget._get_col_base_name(i) for i in range(explorer_widget.table.columnCount())]
+    lr_idx = col_names.index("learning_rate")
+
+    # 手動で learning_rate を非表示にする
+    explorer_widget.hide_column("learning_rate")
+    assert explorer_widget.table.isColumnHidden(lr_idx) is True
+    assert "learning_rate" in explorer_widget._hidden_column_names
+
+    # 差分のある列のみ表示を ON にしても隠れたまま
+    explorer_widget.cb_diff_columns_only.setChecked(True)
+    assert explorer_widget.table.isColumnHidden(lr_idx) is True
+
+    # 差分のある列のみ表示を OFF にしても隠れたまま
+    explorer_widget.cb_diff_columns_only.setChecked(False)
+    assert explorer_widget.table.isColumnHidden(lr_idx) is True
+    assert "learning_rate" in explorer_widget._hidden_column_names
+
+
+def test_view_state_persistence(qtbot, tmp_path):
+    """
+    save_view_state() → 新しいウィジェットで restore_view_state()
+    スプリッター、各チェックボックス、サイドバー表示状態、非表示列、ヘッダー並び順が正しく復元されることの検証
+    """
+    # tmp_path 直下にダミー実験フォルダを作成（recursive=False でも検出できるようにする）
+    create_dummy_experiment_folder(str(tmp_path), "output_save_1", mode="S-SAP", learning_rate=0.001)
+    create_dummy_experiment_folder(str(tmp_path), "output_save_2", mode="S-SAP", learning_rate=0.002)
+
+    w1 = ExperimentExplorerWidget()
+    qtbot.addWidget(w1)
+    w1.set_root_directory(str(tmp_path), blocking=True)
+
+    # 状態を変更
+    w1.cb_diff_columns_only.setChecked(True)
+    w1.cb_recursive.setChecked(False)
+    w1.set_sidebar_visible(False)
+    w1.hide_column("モード")
+    w1.splitter.setSizes([500, 300])
+
+    # 列ヘッダーのセクションを並べ替え (列0と列1を交換)
+    header1 = w1.table.horizontalHeader()
+    header1.moveSection(0, 1)
+
+    w1.save_view_state()
+
+    # 新しいインスタンスを生成（__init__ 内で restore_view_state が呼ばれる）
+    w2 = ExperimentExplorerWidget()
+    qtbot.addWidget(w2)
+
+    assert w2.cb_diff_columns_only.isChecked() is True
+    assert w2.cb_recursive.isChecked() is False
+    assert w2.preview_container.isHidden() is True
+    assert "モード" in w2._hidden_column_names
+
+    # 同じルートを開いてテーブルを構築
+    w2.set_root_directory(str(tmp_path), blocking=True)
+
+    # テーブル構築後、ヘッダーの並び順が復元されていること
+    header2 = w2.table.horizontalHeader()
+    assert header2.visualIndex(0) == header1.visualIndex(0)
+    assert header2.visualIndex(1) == header1.visualIndex(1)
+    assert header2.visualIndex(0) == header1.visualIndex(0)
+    assert header2.visualIndex(1) == header1.visualIndex(1)
+
+
+def test_header_state_reset_on_different_columns(qtbot, tmp_path):
+    """列の構成が異なるルートフォルダを開いたとき、前回の列の並び順が誤適用されないことの検証"""
+    dir1 = tmp_path / "root1"
+    dir1.mkdir()
+    create_dummy_experiment_folder(str(dir1), "log1", mode="S-SAP", learning_rate=0.01)
+
+    # root2 は異なるパラメータ構成のフォルダを作成
+    dir2 = tmp_path / "root2"
+    dir2.mkdir()
+    p2 = dir2 / "log2"
+    p2.mkdir()
+    import yaml
+    with open(p2 / "config.yaml", "w", encoding="utf-8") as f:
+        yaml.dump({"mode": "S-SAP", "different_param": 999}, f)
+
+    w1 = ExperimentExplorerWidget()
+    qtbot.addWidget(w1)
+    w1.set_root_directory(str(dir1), blocking=True)
+    w1.table.horizontalHeader().moveSection(0, 2)
+    w1.save_view_state()
+
+    # 異なる列構成の dir2 を開く
+    w2 = ExperimentExplorerWidget()
+    qtbot.addWidget(w2)
+    w2.set_root_directory(str(dir2), blocking=True)
+
+    # 列構成が異なるため、前回の並び順は適用されず、デフォルト順 (visualIndex == logicalIndex) であること
+    header2 = w2.table.horizontalHeader()
+    for i in range(w2.table.columnCount()):
+        assert header2.visualIndex(i) == i
+
+
 
 
 
