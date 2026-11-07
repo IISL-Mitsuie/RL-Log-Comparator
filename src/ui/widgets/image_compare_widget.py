@@ -16,7 +16,7 @@ from PySide6.QtCore import Qt
 
 from src.core.parsers.experiment import get_experiment_info
 from src.core.parsers.image_pair import (
-    detect_image_pairs, get_folder_image_list
+    detect_image_pairs, get_folder_image_list, ImagePairItem
 )
 from src.ui.widgets.sync_graphics_view import (
     SyncGraphicsView, ViewSyncController
@@ -289,25 +289,44 @@ class ImageCompareWidget(QWidget):
         else:
             self._on_image_selected(self.list_images.currentRow())
 
-    def load_folders(self, folder_a: str, folder_b: str) -> None:
-        """フォルダA/Bを設定し画像ペア一覧および個別画像リストを走査・更新"""
+    def apply_data(
+        self,
+        folder_a: str,
+        folder_b: str,
+        info_a: str,
+        info_b: str,
+        pairs: list[ImagePairItem],
+        imgs_a: list[tuple[str, str, str]],
+        imgs_b: list[tuple[str, str, str]],
+    ) -> None:
+        """解析済みの画像データを反映"""
         self.folder_a = folder_a
         self.folder_b = folder_b
 
-        info_a = get_experiment_info(folder_a)
-        info_b = get_experiment_info(folder_b)
         self.box_a.setTitle(f"実験 A: {info_a}")
         self.box_b.setTitle(f"実験 B: {info_b}")
 
-        self._detect_images()
-        self._update_individual_combos()
+        self._apply_detected_pairs(pairs)
+        self._apply_individual_combos(imgs_a, imgs_b)
+
+    def load_folders(self, folder_a: str, folder_b: str) -> None:
+        """フォルダA/Bを設定し画像ペア一覧および個別画像リストを走査・更新（互換性のために維持）"""
+        info_a = get_experiment_info(folder_a)
+        info_b = get_experiment_info(folder_b)
+        pairs = detect_image_pairs(folder_a, folder_b)
+        imgs_a = get_folder_image_list(folder_a)
+        imgs_b = get_folder_image_list(folder_b)
+        self.apply_data(folder_a, folder_b, info_a, info_b, pairs, imgs_a, imgs_b)
 
     def _detect_images(self) -> None:
-        """自動ペアリング一覧の構築"""
+        """自動ペアリング一覧の構築（同期走査）"""
+        pairs = detect_image_pairs(self.folder_a, self.folder_b)
+        self._apply_detected_pairs(pairs)
+
+    def _apply_detected_pairs(self, pairs: list[ImagePairItem]) -> None:
+        """自動ペアリング一覧の構築（データ適用）"""
         self.list_images.blockSignals(True)
         self.list_images.clear()
-
-        pairs = detect_image_pairs(self.folder_a, self.folder_b)
 
         for pair in pairs:
             item = QListWidgetItem(pair.display_text)
@@ -328,11 +347,18 @@ class ImageCompareWidget(QWidget):
             self._update_mode_availability()
 
     def _update_individual_combos(self) -> None:
-        """左右それぞれの個別画像コンボボックスを更新"""
+        """左右それぞれの個別画像コンボボックスを更新（同期走査）"""
+        imgs_a = get_folder_image_list(self.folder_a)
+        imgs_b = get_folder_image_list(self.folder_b)
+        self._apply_individual_combos(imgs_a, imgs_b)
+
+    def _apply_individual_combos(
+        self, imgs_a: list[tuple[str, str, str]], imgs_b: list[tuple[str, str, str]]
+    ) -> None:
+        """左右それぞれの個別画像コンボボックスを更新（データ適用）"""
         # A側
         self.combo_img_a.blockSignals(True)
         self.combo_img_a.clear()
-        imgs_a = get_folder_image_list(self.folder_a)
         for _, title, path in imgs_a:
             self.combo_img_a.addItem(title, path)
         self.combo_img_a.blockSignals(False)
@@ -340,7 +366,6 @@ class ImageCompareWidget(QWidget):
         # B側
         self.combo_img_b.blockSignals(True)
         self.combo_img_b.clear()
-        imgs_b = get_folder_image_list(self.folder_b)
         for _, title, path in imgs_b:
             self.combo_img_b.addItem(title, path)
         self.combo_img_b.blockSignals(False)

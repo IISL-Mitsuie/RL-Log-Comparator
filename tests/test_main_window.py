@@ -128,7 +128,7 @@ class TestMainWindow(unittest.TestCase):
         window = self._create_isolated_window()
 
         # パス設定
-        window.tab_explorer.set_root_directory(self.test_dir)
+        window.tab_explorer.set_root_directory(self.test_dir, blocking=True)
         window.combo_folder_a.setEditText(self.folder_a)
         window.combo_folder_b.setEditText(self.folder_b)
 
@@ -153,26 +153,24 @@ class TestMainWindow(unittest.TestCase):
         self.assertEqual(new_window._last_loaded_b, os.path.abspath(self.folder_b))
 
     def test_load_all_continues_when_one_tab_fails(self):
-        """1 つのタブの読み込みが失敗しても、残りのタブは読み込まれ、ステータスバーに表示される (ISSUE-07)"""
+        """1 つのタブの反映が失敗しても、残りのタブは反映され、ステータスバーに表示される (ISSUE-05 / ISSUE-07)"""
         window = self._create_isolated_window()
         window.combo_folder_a.setEditText(self.folder_a)
         window.combo_folder_b.setEditText(self.folder_b)
 
-        with patch.object(window.tab_yaml, "load_yamls", side_effect=TypeError("YAML の想定外エラー")), \
-                patch.object(window.tab_images, "load_folders", wraps=window.tab_images.load_folders) as mock_images, \
-                patch.object(window.tab_csv, "load_csvs", wraps=window.tab_csv.load_csvs) as mock_csv, \
+        with patch.object(window.tab_yaml, "apply_data", side_effect=TypeError("YAML の想定外エラー")), \
+                patch.object(window.tab_images, "apply_data", wraps=window.tab_images.apply_data) as mock_images, \
+                patch.object(window.tab_csv, "apply_data", wraps=window.tab_csv.apply_data) as mock_csv, \
                 self.assertLogs("src.ui.main_window", level="ERROR") as logs:
-            window.load_all()
+            window.load_all(blocking=True)
 
-        mock_images.assert_called_once_with(self.folder_a, self.folder_b)
-        mock_csv.assert_called_once_with(self.folder_a, self.folder_b)
+        self.assertEqual(mock_images.call_count, 1)
+        self.assertEqual(mock_csv.call_count, 1)
         self.assertIsNotNone(window.tab_csv.df_a)
         message = window.statusBar().currentMessage()
         self.assertIn("ハイパーパラメータ差分", message)
         self.assertIn("YAML の想定外エラー", message)
         self.assertIn("Traceback", logs.output[0])
-
-
 if __name__ == "__main__":
     unittest.main()
 

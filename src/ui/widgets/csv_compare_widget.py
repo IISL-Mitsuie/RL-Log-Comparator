@@ -444,25 +444,66 @@ class CsvCompareWidget(QWidget):
         self._task_df_cache[cache_key] = df
         return df
 
-    def load_csvs(self, folder_a: str, folder_b: str) -> None:
-        """フォルダA/Bの CSV ログを読み込んでタスクリスト、指標リストおよびチャートを更新"""
+    def apply_data(
+        self,
+        folder_a: str,
+        folder_b: str,
+        info_a: str,
+        info_b: str,
+        df_a: Optional[pd.DataFrame],
+        df_failed_a: Optional[str],
+        df_b: Optional[pd.DataFrame],
+        df_failed_b: Optional[str],
+        task_options_a: list[TaskOption],
+        task_options_b: list[TaskOption],
+    ) -> None:
+        """解析済みのCSVデータを反映"""
         self._task_df_cache.clear()
         self._csv_load_errors = {}
+        if df_failed_a:
+            self._csv_load_errors["A"] = df_failed_a
+        if df_failed_b:
+            self._csv_load_errors["B"] = df_failed_b
+
         self.folder_a = folder_a
         self.folder_b = folder_b
-        self.info_a = get_experiment_info(folder_a)
-        self.info_b = get_experiment_info(folder_b)
+        self.info_a = info_a
+        self.info_b = info_b
 
         # フォルダ再読み込み時はテキスト設定をデフォルトにリセット
         self._need_reset_texts = True
 
-        self.df_a = self._read_csv_or_record_error(folder_a, "A")
-        self.df_b = self._read_csv_or_record_error(folder_b, "B")
+        self.df_a = df_a
+        self.df_b = df_b
+        self.task_options_a = task_options_a
+        self.task_options_b = task_options_b
 
         # 指標一覧およびタスク一覧の統合更新
         self._update_metrics_list()
-        self._update_task_combos()
+        self._populate_task_combos()
         self.update_chart()
+
+    def load_csvs(self, folder_a: str, folder_b: str) -> None:
+        """フォルダA/Bの CSV ログを同期的に読み込んでタスクリスト、指標リストおよびチャートを更新（互換性のために維持）"""
+        self._csv_load_errors = {}
+        info_a = get_experiment_info(folder_a)
+        info_b = get_experiment_info(folder_b)
+        df_a = self._read_csv_or_record_error(folder_a, "A")
+        df_b = self._read_csv_or_record_error(folder_b, "B")
+        opts_a = scan_task_options(folder_a, df_a)
+        opts_b = scan_task_options(folder_b, df_b)
+        self.apply_data(
+            folder_a,
+            folder_b,
+            info_a,
+            info_b,
+            df_a,
+            self._csv_load_errors.get("A"),
+            df_b,
+            self._csv_load_errors.get("B"),
+            opts_a,
+            opts_b,
+        )
 
     def _read_csv_or_record_error(self, folder: str, side: str):
         """CSV を読み込む。失敗した場合はファイル名を記録して None を返す"""
@@ -513,10 +554,12 @@ class CsvCompareWidget(QWidget):
 
     def _update_task_combos(self) -> None:
         """フォルダAおよびBからタスク一覧を取得し、通常コンボおよびA/B個別コンボを更新"""
-        # 1. フォルダA/Bから TaskOption をスキャン
         self.task_options_a = scan_task_options(self.folder_a, self.df_a)
         self.task_options_b = scan_task_options(self.folder_b, self.df_b)
+        self._populate_task_combos()
 
+    def _populate_task_combos(self) -> None:
+        """タスクオプションに基づいてコンボボックス群を更新"""
         # 2. 通常コンボ (self.combo_task) の更新 (全タスク統合 + マージされたタスク)
         self.combo_task.blockSignals(True)
         self.combo_task.clear()
