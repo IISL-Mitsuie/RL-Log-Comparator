@@ -20,10 +20,8 @@ from PySide6.QtCore import Qt, QThreadPool, QTimer
 from src.config import (
     CLEAR_HISTORY_TEXT, APP_VERSION,
     GITHUB_REPO_OWNER, GITHUB_REPO_NAME,
-    UPDATE_CHECK_TIMEOUT_SEC,
-    SETTINGS_KEY_THEME
+    UPDATE_CHECK_TIMEOUT_SEC
 )
-from src.core.settings import create_settings
 from src.ui.theme import get_theme_manager
 from src.core.paths import get_app_icon_path
 from src.core.history import RecentFolderManager, SessionStateManager
@@ -611,8 +609,6 @@ class ExperimentCompareApp(QMainWindow):
         pref = self.combo_theme.currentData()
         if pref:
             get_theme_manager().set_preference(pref)
-            settings = create_settings()
-            settings.setValue(SETTINGS_KEY_THEME, pref)
 
     def _apply_update_info(self, info: Optional[UpdateInfo]) -> None:
         """更新情報の取得結果をUIに反映"""

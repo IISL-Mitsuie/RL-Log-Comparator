@@ -30,7 +30,7 @@ class LogSpecWidget(QWidget):
         top_layout.addStretch()
 
         btn_export = QPushButton("📥 ログ仕様書 (DATA_FORMAT.md) をダウンロード")
-        btn_export.setProperty("role", "success")
+        btn_export.setProperty("role", "accent")
         btn_export.setStyleSheet("padding: 6px 12px; border-radius: 4px;")
         btn_export.clicked.connect(self._export_markdown)
         top_layout.addWidget(btn_export)

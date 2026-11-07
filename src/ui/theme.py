@@ -11,6 +11,9 @@ from PySide6.QtCore import QObject, Signal, Qt
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication
 
+from src.config import SETTINGS_KEY_THEME
+from src.core.settings import create_settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -126,10 +129,9 @@ DARK: Theme = Theme(
 
 def current_theme() -> Theme:
     """現在の配色（システムの配色の解決結果）に応じた Theme を返す"""
-    # テーマ管理者の明示設定がある場合はそれを反映
-    tm = ThemeManager._instance
-    if tm is not None and tm.get_preference() in ("light", "dark"):
-        return DARK if tm.get_preference() == "dark" else LIGHT
+    pref = ThemeManager._active_preference
+    if pref in ("light", "dark"):
+        return DARK if pref == "dark" else LIGHT
 
     app = QGuiApplication.instance()
     if app is not None:
@@ -183,13 +185,8 @@ def build_app_stylesheet(theme: Theme) -> str:
         background-color: {theme.accent_hover};
     }}
     QPushButton[role="accent"]:disabled {{
-        opacity: 0.5;
-    }}
-
-    QPushButton[role="success"] {{
-        background-color: {theme.success};
-        color: {theme.accent_text};
-        font-weight: bold;
+        background-color: {theme.panel_bg};
+        color: {theme.text_muted};
     }}
 
     /* 表の選択色 (背景・交互行・枠線等は標準パレットに任せる) */
@@ -211,11 +208,25 @@ class ThemeManager(QObject):
     theme_changed = Signal(object)  # 発行時に current_theme() (Theme) を渡す
 
     _instance: Optional['ThemeManager'] = None
+    _active_preference: str = "system"
 
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
-        ThemeManager._instance = self
-        self._preference: str = "system"
+        if ThemeManager._instance is None:
+            ThemeManager._instance = self
+
+        try:
+            saved_pref = create_settings().value(SETTINGS_KEY_THEME, "system", type=str)
+        except Exception:
+            saved_pref = "system"
+
+        if saved_pref:
+            saved_pref = saved_pref.lower().strip()
+        if saved_pref not in ("system", "light", "dark"):
+            saved_pref = "system"
+
+        self._preference: str = saved_pref
+        ThemeManager._active_preference = saved_pref
         self._original_style_name: Optional[str] = None
 
         hints = QGuiApplication.styleHints()
@@ -235,15 +246,31 @@ class ThemeManager(QObject):
         """現在のテーマ設定値 ('system' | 'light' | 'dark') を返す"""
         return self._preference
 
-    def set_preference(self, pref: str) -> None:
+    def load_preference(self) -> None:
+        """保存されたテーマ設定を読み込んで適用する（再保存は行わない）"""
+        try:
+            saved_pref = create_settings().value(SETTINGS_KEY_THEME, "system", type=str)
+        except Exception:
+            saved_pref = "system"
+        self.set_preference(saved_pref, save=False)
+
+    def set_preference(self, pref: str, *, save: bool = True) -> None:
         """
         テーマ設定を変更し、即座に適用してシグナルを発行する。
         pref: 'system' | 'light' | 'dark'
+        save: True の場合、QSettings に設定を保存する
         """
         pref = pref.lower().strip() if pref else "system"
         if pref not in ("system", "light", "dark"):
             pref = "system"
         self._preference = pref
+        ThemeManager._active_preference = pref
+
+        if save:
+            try:
+                create_settings().setValue(SETTINGS_KEY_THEME, self._preference)
+            except Exception:
+                logger.debug("テーマ設定の保存に失敗しました", exc_info=True)
 
         hints = QGuiApplication.styleHints()
         if hints is not None:

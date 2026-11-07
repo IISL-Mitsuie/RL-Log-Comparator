@@ -12,9 +12,7 @@ from pathlib import Path
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from src.config import SETTINGS_KEY_THEME
 from src.core.parsers.yaml_diff import build_diff_tree
-from src.core.settings import create_settings
 from src.ui.theme import LIGHT, DARK, Theme, ThemeManager, current_theme, get_theme_manager
 
 
@@ -125,18 +123,17 @@ def test_theme_manager_switching(qapp):
 
 
 def test_theme_preference_persistence(tmp_path, monkeypatch, qapp):
-    """テーマ設定が QSettings に保存され、復元できること"""
-    settings = create_settings()
-    settings.setValue(SETTINGS_KEY_THEME, "dark")
-
-    loaded_pref = settings.value(SETTINGS_KEY_THEME, "system", type=str)
-    assert loaded_pref == "dark"
-
-    manager = ThemeManager()
+    """テーマ設定が QSettings に保存され、新しい ThemeManager インスタンスでも復元できること"""
+    manager = get_theme_manager()
     try:
-        manager.set_preference(loaded_pref)
-        assert manager.get_preference() == "dark"
+        manager.set_preference("dark")
+        # 新しく ThemeManager を生成した際、保存された設定が自動復元されること
+        manager2 = ThemeManager()
+        assert manager2.get_preference() == "dark"
         assert current_theme().name == "dark"
+
+        # シングルトンが壊れていないこと
+        assert get_theme_manager() is manager
     finally:
         manager.set_preference("system")
 
