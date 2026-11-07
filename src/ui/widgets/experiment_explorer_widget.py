@@ -657,6 +657,10 @@ class ExperimentExplorerWidget(QWidget):
 
     def _populate_table(self):
         """テーブルの行・列を構築"""
+        if self._raw_column_names:
+            self._saved_header_state = self.table.horizontalHeader().saveState()
+            self._saved_header_columns = self._raw_column_names[:]
+
         self.table.setSortingEnabled(False)
         self.table.clear()
 
@@ -727,6 +731,8 @@ class ExperimentExplorerWidget(QWidget):
 
         self.table.setSortingEnabled(True)
 
+        self._try_restore_header_state()
+
         # 列幅の自動調整（主要列）
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -734,8 +740,6 @@ class ExperimentExplorerWidget(QWidget):
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-
-        self._try_restore_header_state()
 
         # 1行目を選択
         if self._records:
@@ -1186,7 +1190,8 @@ class ExperimentExplorerWidget(QWidget):
         self._update_status_label()
 
     def _try_restore_header_state(self) -> bool:
-        """保存されたヘッダー並び順と現在の列構成が一致する場合にのみ復元"""
+        """保存されたヘッダー並び順と現在の列構成が一致する場合にのみ復元。不一致時はデフォルト順にリセット"""
+        header = self.table.horizontalHeader()
         if (
             self._saved_header_state is not None
             and self._saved_header_columns is not None
@@ -1196,7 +1201,12 @@ class ExperimentExplorerWidget(QWidget):
             state = self._saved_header_state
             if isinstance(state, str):
                 state = state.encode("utf-8")
-            return bool(self.table.horizontalHeader().restoreState(state))
+            return bool(header.restoreState(state))
+
+        for logical_idx in range(header.count()):
+            vis_idx = header.visualIndex(logical_idx)
+            if vis_idx != logical_idx:
+                header.moveSection(vis_idx, logical_idx)
         return False
 
     def save_view_state(self) -> None:

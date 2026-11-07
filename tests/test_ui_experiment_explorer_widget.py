@@ -599,8 +599,6 @@ def test_view_state_persistence(qtbot, tmp_path):
     header2 = w2.table.horizontalHeader()
     assert header2.visualIndex(0) == header1.visualIndex(0)
     assert header2.visualIndex(1) == header1.visualIndex(1)
-    assert header2.visualIndex(0) == header1.visualIndex(0)
-    assert header2.visualIndex(1) == header1.visualIndex(1)
 
 
 def test_header_state_reset_on_different_columns(qtbot, tmp_path):
@@ -622,20 +620,43 @@ def test_header_state_reset_on_different_columns(qtbot, tmp_path):
     qtbot.addWidget(w1)
     w1.set_root_directory(str(dir1), blocking=True)
     w1.table.horizontalHeader().moveSection(0, 2)
+    assert w1.table.horizontalHeader().visualIndex(0) == 2
     w1.save_view_state()
 
-    # 異なる列構成の dir2 を開く
+    # 同一インスタンス w1 で異なる列構成の dir2 に切り替えた場合、セクション順序がデフォルト順にリセットされること
+    w1.set_root_directory(str(dir2), blocking=True)
+    header1 = w1.table.horizontalHeader()
+    for i in range(w1.table.columnCount()):
+        assert header1.visualIndex(i) == i
+
+    # 異なる列構成の dir2 を新しいインスタンス w2 で開いた場合もリセットされること
     w2 = ExperimentExplorerWidget()
     qtbot.addWidget(w2)
     w2.set_root_directory(str(dir2), blocking=True)
 
-    # 列構成が異なるため、前回の並び順は適用されず、デフォルト順 (visualIndex == logicalIndex) であること
     header2 = w2.table.horizontalHeader()
     for i in range(w2.table.columnCount()):
         assert header2.visualIndex(i) == i
 
 
+def test_header_state_preserved_on_reload(qtbot, tmp_path):
+    """同一フォルダでの再読込時に列の並び順が保持されることの検証"""
+    create_dummy_experiment_folder(str(tmp_path), "output_rld_1", mode="S-SAP", learning_rate=0.001)
+    create_dummy_experiment_folder(str(tmp_path), "output_rld_2", mode="S-SAP", learning_rate=0.002)
 
+    widget = ExperimentExplorerWidget()
+    qtbot.addWidget(widget)
+    widget.set_root_directory(str(tmp_path), blocking=True)
 
+    # 列0と列1を移動
+    widget.table.horizontalHeader().moveSection(0, 1)
+    assert widget.table.horizontalHeader().visualIndex(0) == 1
+    assert widget.table.horizontalHeader().visualIndex(1) == 0
 
+    # 再読込を実行
+    widget.scan_directory(blocking=True)
+
+    # 再読込後も並び順が保持されていること
+    assert widget.table.horizontalHeader().visualIndex(0) == 1
+    assert widget.table.horizontalHeader().visualIndex(1) == 0
 
