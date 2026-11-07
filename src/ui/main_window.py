@@ -573,6 +573,7 @@ class ExperimentCompareApp(QMainWindow):
             folder_a=folder_a,
             folder_b=folder_b
         )
+        self.tab_explorer.save_view_state()
         super().closeEvent(event)
 
     # -------------------------------------------------------------------------

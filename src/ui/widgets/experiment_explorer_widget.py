@@ -16,7 +16,17 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal, QUrl, QSize, QThreadPool
 from PySide6.QtGui import QPixmap, QDesktopServices, QColor, QImage, QImageReader
 
-from src.config import SETTINGS_KEY_RECENT_ROOT_DIRS, CLEAR_HISTORY_TEXT
+from src.config import (
+    SETTINGS_KEY_RECENT_ROOT_DIRS, CLEAR_HISTORY_TEXT,
+    SETTINGS_KEY_EXPLORER_HIDDEN_COLUMNS,
+    SETTINGS_KEY_EXPLORER_DIFF_ONLY,
+    SETTINGS_KEY_EXPLORER_RECURSIVE,
+    SETTINGS_KEY_EXPLORER_SIDEBAR_VISIBLE,
+    SETTINGS_KEY_EXPLORER_SPLITTER_STATE,
+    SETTINGS_KEY_EXPLORER_HEADER_STATE,
+    SETTINGS_KEY_EXPLORER_HEADER_COLUMNS,
+)
+from src.core.settings import create_settings
 from src.core.history import RecentFolderManager
 from src.core.parsers.experiment_scanner import (
     scan_experiments_directory, ExperimentLogRecord
@@ -240,8 +250,13 @@ class ExperimentExplorerWidget(QWidget):
         self._scan_worker: Optional[FunctionWorker] = None
         self._is_scanning: bool = False
 
+        self._status_base_text: str = "探索フォルダを指定して「再読込」を押してください。"
+        self._saved_header_state: Optional[Any] = None
+        self._saved_header_columns: Optional[list[str]] = None
+
         self._init_ui()
         self._update_history_combo()
+        self.restore_view_state()
 
     @property
     def edit_root_dir(self):
@@ -323,6 +338,10 @@ class ExperimentExplorerWidget(QWidget):
         filter_input_lay.addWidget(btn_clear_filter)
         ctrl_grid.addLayout(filter_input_lay, 2, 1)
 
+        self.cb_diff_columns_only = QCheckBox("差分のある列のみ表示")
+        self.cb_diff_columns_only.setToolTip("表示中の実験の間で値が異なるパラメータ列だけを表示します")
+        self.cb_diff_columns_only.toggled.connect(self._apply_column_visibility)
+
         self.btn_column_filter = QPushButton("🔍 列フィルター...")
         self.btn_column_filter.setToolTip("列を選択してフィルター設定ダイアログを開きます")
         self.btn_column_filter.clicked.connect(self._open_column_filter_picker)
@@ -335,6 +354,7 @@ class ExperimentExplorerWidget(QWidget):
         right_bottom_lay = QHBoxLayout()
         right_bottom_lay.setContentsMargins(0, 0, 0, 0)
         right_bottom_lay.setSpacing(8)
+        right_bottom_lay.addWidget(self.cb_diff_columns_only)
         right_bottom_lay.addWidget(self.btn_column_filter)
         right_bottom_lay.addWidget(self.btn_reset_all_filters)
         ctrl_grid.addLayout(right_bottom_lay, 2, 2)
@@ -408,6 +428,7 @@ class ExperimentExplorerWidget(QWidget):
 
         # 列ヘッダーのコンテキストメニュー & ダブルクリック（列フィルター機能）
         header = self.table.horizontalHeader()
+        header.setSectionsMovable(True)
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         header.customContextMenuRequested.connect(self._on_header_context_menu)
         header.sectionDoubleClicked.connect(self.open_column_filter)
@@ -583,7 +604,7 @@ class ExperimentExplorerWidget(QWidget):
             self._records = records
             self._config_keys = config_keys
             self._populate_table()
-            self.lbl_table_status.setText(
+            self._set_status_base_text(
                 f"探索完了: {len(records)} 件の実験ログを検出しました（Configパラメータ数: {len(config_keys)} 列）。"
             )
             return
@@ -619,11 +640,11 @@ class ExperimentExplorerWidget(QWidget):
         self._config_keys = config_keys
         self._populate_table()
         if self._scan_worker and self._scan_worker.cancel_event.is_set():
-            self.lbl_table_status.setText(
+            self._set_status_base_text(
                 f"探索を中止しました: {len(records)} 件の実験ログを検出しました。"
             )
         else:
-            self.lbl_table_status.setText(
+            self._set_status_base_text(
                 f"探索完了: {len(records)} 件の実験ログを検出しました（Configパラメータ数: {len(config_keys)} 列）。"
             )
 
@@ -636,6 +657,10 @@ class ExperimentExplorerWidget(QWidget):
 
     def _populate_table(self):
         """テーブルの行・列を構築"""
+        if self._raw_column_names:
+            self._saved_header_state = self.table.horizontalHeader().saveState()
+            self._saved_header_columns = self._raw_column_names[:]
+
         self.table.setSortingEnabled(False)
         self.table.clear()
 
@@ -706,6 +731,8 @@ class ExperimentExplorerWidget(QWidget):
 
         self.table.setSortingEnabled(True)
 
+        self._try_restore_header_state()
+
         # 列幅の自動調整（主要列）
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -721,7 +748,6 @@ class ExperimentExplorerWidget(QWidget):
             self._clear_preview()
 
         self._update_header_labels()
-        self._apply_column_visibility()
         self._apply_filter()
 
 
@@ -915,12 +941,16 @@ class ExperimentExplorerWidget(QWidget):
             for col_name in self._column_filters:
                 conds.append(f"{col_name} 列")
             desc = ", ".join(conds)
-            self.lbl_table_status.setText(f"フィルター適用中 ({desc}): {visible_count} / {row_count} 件を表示")
+            self._status_base_text = f"フィルター適用中 ({desc}): {visible_count} / {row_count} 件を表示"
         else:
             if self._records:
-                self.lbl_table_status.setText(
+                self._status_base_text = (
                     f"探索完了: {len(self._records)} 件の実験ログを検出しました（Configパラメータ数: {len(self._config_keys)} 列）。"
                 )
+            elif self.table.rowCount() == 0:
+                self._status_base_text = "探索フォルダを指定して「再読込」を押してください。"
+
+        self._apply_column_visibility()
 
     def _get_selected_record(self) -> Optional[ExperimentLogRecord]:
         """現在選択されている行の ExperimentLogRecord を取得"""
@@ -1094,11 +1124,148 @@ class ExperimentExplorerWidget(QWidget):
             self._hidden_column_names = dlg.get_hidden_columns()
             self._apply_column_visibility()
 
-    def _apply_column_visibility(self):
+    def _set_status_base_text(self, text: str) -> None:
+        """基本ステータステキストを更新し、差分列表示情報を反映してラベルを更新"""
+        self._status_base_text = text
+        self._update_status_label()
+
+    def _compute_constant_columns(self) -> set[str]:
+        """
+        現在表示中（isRowHidden が False）の行が 2 行以上ある場合、
+        固定列（列 0〜4: モード、Shield、学習種別、フォルダ名、タイムスタンプ）を除く
+        列 5 以降の各パラメータ列について、item.text() の値の種類が 1 以下の列名を返す。
+        表示行が 1 行以下なら空集合を返す（何も隠さない）。
+        """
+        row_count = self.table.rowCount()
+        col_count = self.table.columnCount()
+        if row_count <= 1 or col_count <= 5:
+            return set()
+
+        visible_rows = [r for r in range(row_count) if not self.table.isRowHidden(r)]
+        if len(visible_rows) <= 1:
+            return set()
+
+        constant_cols: set[str] = set()
+        for col_idx in range(5, col_count):
+            col_name = self._get_col_base_name(col_idx)
+            if not col_name:
+                continue
+            values = set()
+            for r in visible_rows:
+                item = self.table.item(r, col_idx)
+                text_val = item.text() if item is not None else ""
+                values.add(text_val)
+                if len(values) > 1:
+                    break
+            if len(values) <= 1:
+                constant_cols.add(col_name)
+
+        return constant_cols
+
+    def _update_status_label(self) -> None:
+        """状態ラベルのテキストを更新（差分列表示中の情報を反映）"""
+        text = self._status_base_text
+        if self.cb_diff_columns_only.isChecked() and self._config_keys:
+            total_params = len(self._config_keys)
+            col_count = self.table.columnCount()
+            visible_params = sum(
+                1 for c in range(5, col_count)
+                if not self.table.isColumnHidden(c)
+            )
+            text += f"（差分列のみ表示中: {visible_params} / {total_params} 列）"
+        self.lbl_table_status.setText(text)
+
+    def _apply_column_visibility(self) -> None:
         """テーブルの各列に対して非表示設定を適用"""
+        diff_only = self.cb_diff_columns_only.isChecked()
+        constant_columns = self._compute_constant_columns() if diff_only else set()
         col_count = self.table.columnCount()
         for col_idx in range(col_count):
             base_name = self._get_col_base_name(col_idx)
-            is_hidden = base_name in self._hidden_column_names
+            is_hidden = (
+                base_name in self._hidden_column_names
+                or (diff_only and base_name in constant_columns)
+            )
             self.table.setColumnHidden(col_idx, is_hidden)
+        self._update_status_label()
+
+    def _try_restore_header_state(self) -> bool:
+        """保存されたヘッダー並び順と現在の列構成が一致する場合にのみ復元。不一致時はデフォルト順にリセット"""
+        header = self.table.horizontalHeader()
+        if (
+            self._saved_header_state is not None
+            and self._saved_header_columns is not None
+            and self._raw_column_names
+            and self._saved_header_columns == self._raw_column_names
+        ):
+            state = self._saved_header_state
+            if isinstance(state, str):
+                state = state.encode("utf-8")
+            return bool(header.restoreState(state))
+
+        for logical_idx in range(header.count()):
+            vis_idx = header.visualIndex(logical_idx)
+            if vis_idx != logical_idx:
+                header.moveSection(vis_idx, logical_idx)
+        return False
+
+    def save_view_state(self) -> None:
+        """現在のビュー設定（非表示列、差分表示、サブフォルダ検索、サイドバー、スプリッター、ヘッダー）を保存"""
+        settings = create_settings()
+        settings.setValue(SETTINGS_KEY_EXPLORER_HIDDEN_COLUMNS, sorted(list(self._hidden_column_names)))
+        settings.setValue(SETTINGS_KEY_EXPLORER_DIFF_ONLY, self.cb_diff_columns_only.isChecked())
+        settings.setValue(SETTINGS_KEY_EXPLORER_RECURSIVE, self.cb_recursive.isChecked())
+        settings.setValue(SETTINGS_KEY_EXPLORER_SIDEBAR_VISIBLE, not self.preview_container.isHidden())
+        settings.setValue(SETTINGS_KEY_EXPLORER_SPLITTER_STATE, self.splitter.saveState())
+        if self._raw_column_names:
+            settings.setValue(SETTINGS_KEY_EXPLORER_HEADER_STATE, self.table.horizontalHeader().saveState())
+            settings.setValue(SETTINGS_KEY_EXPLORER_HEADER_COLUMNS, self._raw_column_names)
+
+    def restore_view_state(self) -> None:
+        """保存されたビュー設定を復元"""
+        settings = create_settings()
+
+        if settings.contains(SETTINGS_KEY_EXPLORER_HIDDEN_COLUMNS):
+            hidden = settings.value(SETTINGS_KEY_EXPLORER_HIDDEN_COLUMNS)
+            if hidden is not None:
+                if isinstance(hidden, (list, tuple, set)):
+                    self._hidden_column_names = {str(x) for x in hidden}
+                elif isinstance(hidden, str):
+                    self._hidden_column_names = {hidden} if hidden else set()
+
+        if settings.contains(SETTINGS_KEY_EXPLORER_DIFF_ONLY):
+            diff_only = settings.value(SETTINGS_KEY_EXPLORER_DIFF_ONLY, False, type=bool)
+            self.cb_diff_columns_only.blockSignals(True)
+            self.cb_diff_columns_only.setChecked(bool(diff_only))
+            self.cb_diff_columns_only.blockSignals(False)
+
+        if settings.contains(SETTINGS_KEY_EXPLORER_RECURSIVE):
+            recursive = settings.value(SETTINGS_KEY_EXPLORER_RECURSIVE, True, type=bool)
+            self.cb_recursive.blockSignals(True)
+            self.cb_recursive.setChecked(bool(recursive))
+            self.cb_recursive.blockSignals(False)
+
+        if settings.contains(SETTINGS_KEY_EXPLORER_SPLITTER_STATE):
+            splitter_state = settings.value(SETTINGS_KEY_EXPLORER_SPLITTER_STATE)
+            if splitter_state is not None:
+                if isinstance(splitter_state, str):
+                    splitter_state = splitter_state.encode("utf-8")
+                self.splitter.restoreState(splitter_state)
+
+        if settings.contains(SETTINGS_KEY_EXPLORER_SIDEBAR_VISIBLE):
+            sidebar_vis = settings.value(SETTINGS_KEY_EXPLORER_SIDEBAR_VISIBLE, True, type=bool)
+            self.set_sidebar_visible(bool(sidebar_vis))
+
+        if settings.contains(SETTINGS_KEY_EXPLORER_HEADER_STATE):
+            self._saved_header_state = settings.value(SETTINGS_KEY_EXPLORER_HEADER_STATE)
+
+        if settings.contains(SETTINGS_KEY_EXPLORER_HEADER_COLUMNS):
+            header_cols = settings.value(SETTINGS_KEY_EXPLORER_HEADER_COLUMNS)
+            if isinstance(header_cols, (list, tuple)):
+                self._saved_header_columns = [str(x) for x in header_cols]
+            else:
+                self._saved_header_columns = None
+
+        self._try_restore_header_state()
+        self._apply_column_visibility()
 

@@ -152,6 +152,20 @@ class TestMainWindow(unittest.TestCase):
         self.assertEqual(new_window._last_loaded_a, os.path.abspath(self.folder_a))
         self.assertEqual(new_window._last_loaded_b, os.path.abspath(self.folder_b))
 
+    def test_close_event_saves_explorer_view_state(self):
+        """closeEvent 実行時に Explorer の表示設定が保存され、次回復元されることの検証 (ISSUE-13)"""
+        from PySide6.QtGui import QCloseEvent
+        window = self._create_isolated_window()
+        window.tab_explorer.cb_diff_columns_only.setChecked(True)
+        window.tab_explorer.cb_recursive.setChecked(False)
+
+        event = QCloseEvent()
+        window.closeEvent(event)
+
+        new_window = self._create_isolated_window()
+        self.assertTrue(new_window.tab_explorer.cb_diff_columns_only.isChecked())
+        self.assertFalse(new_window.tab_explorer.cb_recursive.isChecked())
+
     def test_load_all_continues_when_one_tab_fails(self):
         """1 つのタブの反映が失敗しても、残りのタブは反映され、ステータスバーに表示される (ISSUE-05 / ISSUE-07)"""
         window = self._create_isolated_window()

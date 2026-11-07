@@ -14,6 +14,13 @@ SETTINGS_KEY_CHART_FONT_LABEL = "chart_font_label"
 SETTINGS_KEY_CHART_FONT_TICKS = "chart_font_ticks"
 SETTINGS_KEY_CHART_FONT_TITLE = "chart_font_title"
 SETTINGS_KEY_CHART_FONT_LEGEND = "chart_font_legend"
+SETTINGS_KEY_EXPLORER_HIDDEN_COLUMNS = "explorer/hidden_columns"
+SETTINGS_KEY_EXPLORER_DIFF_ONLY = "explorer/diff_columns_only"
+SETTINGS_KEY_EXPLORER_RECURSIVE = "explorer/recursive"
+SETTINGS_KEY_EXPLORER_SIDEBAR_VISIBLE = "explorer/sidebar_visible"
+SETTINGS_KEY_EXPLORER_SPLITTER_STATE = "explorer/splitter_state"
+SETTINGS_KEY_EXPLORER_HEADER_STATE = "explorer/header_state"
+SETTINGS_KEY_EXPLORER_HEADER_COLUMNS = "explorer/header_columns"
 
 # グラフフォントサイズ デフォルト値 (pt)
 DEFAULT_CHART_FONT_LABEL = 11
