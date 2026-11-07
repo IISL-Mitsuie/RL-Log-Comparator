@@ -21,6 +21,7 @@ SETTINGS_KEY_EXPLORER_SIDEBAR_VISIBLE = "explorer/sidebar_visible"
 SETTINGS_KEY_EXPLORER_SPLITTER_STATE = "explorer/splitter_state"
 SETTINGS_KEY_EXPLORER_HEADER_STATE = "explorer/header_state"
 SETTINGS_KEY_EXPLORER_HEADER_COLUMNS = "explorer/header_columns"
+SETTINGS_KEY_THEME = "ui/theme"
 
 # グラフフォントサイズ デフォルト値 (pt)
 DEFAULT_CHART_FONT_LABEL = 11

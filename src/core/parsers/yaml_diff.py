@@ -22,6 +22,7 @@ class DiffNode:
     is_different: bool
     bg_color_hex: Optional[str] = None
     children: list['DiffNode'] = field(default_factory=list)
+    kind: str = ""
 
 
 def _find_folder_config(folder_path: str) -> Optional[str]:
@@ -129,12 +130,15 @@ def _make_branch_node(
     # 片側にしか存在しない場合は、親ノードの状態にもそれを表示する
     state_str = "階層"
     bg_color_hex = None
+    kind = "group"
     if not has_a:
         state_str = "Bのみ存在"
         bg_color_hex = "#ffe6e6"
+        kind = "only_b"
     elif not has_b:
         state_str = "Aのみ存在"
         bg_color_hex = "#e6ffe6"
+        kind = "only_a"
 
     node = DiffNode(
         key=key,
@@ -143,7 +147,8 @@ def _make_branch_node(
         state_str=state_str,
         is_different=has_diff,
         bg_color_hex=bg_color_hex,
-        children=child_nodes
+        children=child_nodes,
+        kind=kind,
     )
     return node, has_diff
 
@@ -187,19 +192,23 @@ def _compare_node(key: str, val_a: Any, val_b: Any, diff_only: bool) -> tuple[Op
     is_different = False
     state_str = "一致"
     bg_color_hex = None
+    kind = "same"
 
     if not has_a and has_b:
         is_different = True
         state_str = "Bのみ存在"
         bg_color_hex = "#ffe6e6"
+        kind = "only_b"
     elif has_a and not has_b:
         is_different = True
         state_str = "Aのみ存在"
         bg_color_hex = "#e6ffe6"
+        kind = "only_a"
     elif not _values_equal(val_a, val_b):
         is_different = True
         state_str = "差分あり"
         bg_color_hex = "#fff5c8"
+        kind = "changed"
 
     if diff_only and not is_different:
         return None, False
@@ -211,7 +220,8 @@ def _compare_node(key: str, val_a: Any, val_b: Any, diff_only: bool) -> tuple[Op
         state_str=state_str,
         is_different=is_different,
         bg_color_hex=bg_color_hex,
-        children=[]
+        children=[],
+        kind=kind,
     )
     return node, is_different
 

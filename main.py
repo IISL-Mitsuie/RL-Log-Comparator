@@ -23,11 +23,14 @@ import os
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QIcon
 
+from src.config import SETTINGS_KEY_THEME
 from src.core.env import initialize_environment
 from src.core.logging_setup import setup_logging, install_exception_hooks
 from src.core.paths import get_app_icon_path
+from src.core.settings import create_settings
 from src.ui.error_dialog import ErrorDialogNotifier
 from src.ui.main_window import ExperimentCompareApp
+from src.ui.theme import get_theme_manager
 
 _APP_MUTEX_HANDLE = None
 
@@ -57,6 +60,11 @@ def main():
 
     # 2. Qt アプリケーションの初期化
     app = QApplication(sys.argv)
+
+    # テーマ設定の適用（MainWindow 生成前）
+    settings = create_settings()
+    theme_pref = settings.value(SETTINGS_KEY_THEME, "system", type=str)
+    get_theme_manager().set_preference(theme_pref)
 
     # 未捕捉例外をログに記録し、エラーダイアログで通知する
     error_notifier = ErrorDialogNotifier(log_path, parent=app)

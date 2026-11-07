@@ -36,6 +36,7 @@ from src.core.parsers.csv_metric import (
     read_log_csv, compute_metric_series, get_available_metrics, TaskOption,
     scan_task_options, load_task_dataframe, EPISODE_X_LABEL, CsvLoadError
 )
+from src.ui.theme import current_theme, get_theme_manager
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,11 @@ class CsvCompareWidget(QWidget):
         self._redraw_timer.timeout.connect(self.update_chart)
         self._need_reset_texts = True
         self._init_ui()
+        get_theme_manager().theme_changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self, _theme=None) -> None:
+        """テーマ変更時にグラフを再描画（入力済みテキストは保持）"""
+        self.update_chart()
 
     def _init_ui(self):
         main_layout = QHBoxLayout(self)
@@ -271,7 +277,7 @@ class CsvCompareWidget(QWidget):
         right_widget = QWidget()
         right_lay = QVBoxLayout(right_widget)
 
-        self.figure = Figure(figsize=(8, 5), dpi=100, facecolor='#ffffff')
+        self.figure = Figure(figsize=(8, 5), dpi=100, facecolor=current_theme().chart_bg)
         self.canvas = FigureCanvasQTAgg(self.figure)
         orig_draw_idle = self.canvas._draw_idle
         def _safe_draw_idle():
@@ -615,9 +621,10 @@ class CsvCompareWidget(QWidget):
     def update_chart(self) -> None:
         """選択指標・タスク・凡例設定に基づきグラフを描画更新"""
         self._redraw_timer.stop()
+        theme = current_theme()
         self.figure.clear()
-        self.figure.patch.set_facecolor('#ffffff')
-        ax = self.figure.add_subplot(111, facecolor='#ffffff')
+        self.figure.patch.set_facecolor(theme.chart_bg)
+        ax = self.figure.add_subplot(111, facecolor=theme.chart_bg)
 
         row = self.list_metrics.currentRow()
         if row < 0:
@@ -762,9 +769,9 @@ class CsvCompareWidget(QWidget):
         # A系列のプロット (青系統)
         if data_a.has_data and data_a.x is not None:
             if show_raw and data_a.y_raw is not None:
-                ax.plot(*_drop_nan(data_a.x, data_a.y_raw), color="#4a90e2", alpha=0.25, linewidth=1.0)
+                ax.plot(*_drop_nan(data_a.x, data_a.y_raw), color=theme.series_a_raw, alpha=0.25, linewidth=1.0)
             if data_a.y_ma is not None:
-                ax.plot(*_drop_nan(data_a.x, data_a.y_ma), label=legend_label_a, color="#0055ff", linewidth=2.0)
+                ax.plot(*_drop_nan(data_a.x, data_a.y_ma), label=legend_label_a, color=theme.series_a_line, linewidth=2.0)
                 has_plot = True
 
             # Aの収束ポイント描画 (★マーカー)
@@ -772,16 +779,16 @@ class CsvCompareWidget(QWidget):
                 label_star_a = f"{custom_a} 収束点 (★)" if custom_a else "A 収束点 (★)"
                 ax.scatter(
                     data_a.converged_episodes, data_a.converged_y_values,
-                    marker='*', s=140, color="#002299", edgecolors="#ffffff", linewidths=1.0,
+                    marker='*', s=140, color=theme.series_a_marker, edgecolors=theme.chart_bg, linewidths=1.0,
                     zorder=5, label=label_star_a
                 )
 
         # B系列のプロット (赤系統)
         if data_b.has_data and data_b.x is not None:
             if show_raw and data_b.y_raw is not None:
-                ax.plot(*_drop_nan(data_b.x, data_b.y_raw), color="#e74c3c", alpha=0.25, linewidth=1.0)
+                ax.plot(*_drop_nan(data_b.x, data_b.y_raw), color=theme.series_b_raw, alpha=0.25, linewidth=1.0)
             if data_b.y_ma is not None:
-                ax.plot(*_drop_nan(data_b.x, data_b.y_ma), label=legend_label_b, color="#cc0000", linewidth=2.0)
+                ax.plot(*_drop_nan(data_b.x, data_b.y_ma), label=legend_label_b, color=theme.series_b_line, linewidth=2.0)
                 has_plot = True
 
             # Bの収束ポイント描画 (★マーカー)
@@ -789,7 +796,7 @@ class CsvCompareWidget(QWidget):
                 label_star_b = f"{custom_b} 収束点 (★)" if custom_b else "B 収束点 (★)"
                 ax.scatter(
                     data_b.converged_episodes, data_b.converged_y_values,
-                    marker='*', s=140, color="#990000", edgecolors="#ffffff", linewidths=1.0,
+                    marker='*', s=140, color=theme.series_b_marker, edgecolors=theme.chart_bg, linewidths=1.0,
                     zorder=5, label=label_star_b
                 )
 
@@ -815,30 +822,30 @@ class CsvCompareWidget(QWidget):
         if show_boundaries:
             boundaries = data_a.task_boundaries if data_a.task_boundaries else data_b.task_boundaries
             for ep_b, label_b in boundaries:
-                ax.axvline(x=ep_b, color="#888888", linestyle="--", alpha=0.7, linewidth=1.2)
+                ax.axvline(x=ep_b, color=theme.boundary_line, linestyle="--", alpha=0.7, linewidth=1.2)
                 ax.text(
                     ep_b + 1, 0.98, f" {label_b}",
                     transform=ax.get_xaxis_transform(),
-                    color="#555555", fontsize=max(6, font_ticks - 1), fontweight='bold',
+                    color=theme.boundary_text, fontsize=max(6, font_ticks - 1), fontweight='bold',
                     verticalalignment='top', alpha=0.9
                 )
 
-        ax.set_xlabel(x_label, fontsize=font_label, color='#222222', labelpad=6)
-        ax.set_ylabel(y_label, fontsize=font_label, color='#222222', labelpad=6)
-        ax.set_title(chart_title, fontsize=font_title, fontweight='bold', color='#222222', pad=10)
-        ax.grid(True, linestyle="--", alpha=0.6, color='#cccccc')
-        ax.tick_params(colors='#333333', labelsize=font_ticks)
+        ax.set_xlabel(x_label, fontsize=font_label, color=theme.chart_text, labelpad=6)
+        ax.set_ylabel(y_label, fontsize=font_label, color=theme.chart_text, labelpad=6)
+        ax.set_title(chart_title, fontsize=font_title, fontweight='bold', color=theme.chart_text, pad=10)
+        ax.grid(True, linestyle="--", alpha=0.6, color=theme.chart_grid)
+        ax.tick_params(colors=theme.chart_text, labelsize=font_ticks)
         for spine in ax.spines.values():
-            spine.set_color('#888888')
+            spine.set_color(theme.chart_spine)
 
         if has_plot:
-            legend = ax.legend(loc="best", framealpha=0.9, facecolor='#ffffff', edgecolor='#cccccc', fontsize=font_legend)
+            legend = ax.legend(loc="best", framealpha=0.9, facecolor=theme.chart_legend_bg, edgecolor=theme.chart_legend_edge, fontsize=font_legend)
             for text in legend.get_texts():
-                text.set_color('#222222')
+                text.set_color(theme.chart_text)
             if x_axis_mismatch:
                 ax.text(0.99, 0.01, "※ X 軸の単位が A/B で異なります",
                         horizontalalignment='right', verticalalignment='bottom',
-                        transform=ax.transAxes, fontsize=max(6, font_legend - 1), color='#aa5500')
+                        transform=ax.transAxes, fontsize=max(6, font_legend - 1), color=theme.warning)
 
         # 描画できる系列がない場合は、読み込みの失敗を中央に表示する（片側だけの失敗は凡例に示す）
         if not has_plot and load_error_msgs:
@@ -849,11 +856,11 @@ class CsvCompareWidget(QWidget):
                     center_lines.append(f"{side}: [該当列なし]")
             ax.text(0.5, 0.5, "\n".join(center_lines),
                     horizontalalignment='center', verticalalignment='center',
-                    transform=ax.transAxes, fontsize=max(10, font_title), color='#c0392b')
+                    transform=ax.transAxes, fontsize=max(10, font_title), color=theme.error)
         elif not has_plot:
             ax.text(0.5, 0.5, "比較対象の CSV データが存在しません",
                     horizontalalignment='center', verticalalignment='center',
-                    transform=ax.transAxes, fontsize=max(10, font_title), color='#666666')
+                    transform=ax.transAxes, fontsize=max(10, font_title), color=theme.text_muted)
 
 
         try:

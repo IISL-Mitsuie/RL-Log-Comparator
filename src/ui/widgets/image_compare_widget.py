@@ -108,7 +108,8 @@ class ImageCompareWidget(QWidget):
         # --- リサイズ注記ラベル ---
         self.lbl_resize_notice = QLabel("")
         self.lbl_resize_notice.setWordWrap(True)
-        self.lbl_resize_notice.setStyleSheet("color: #666666; font-size: 11px;")
+        self.lbl_resize_notice.setProperty("role", "muted")
+        self.lbl_resize_notice.setStyleSheet("font-size: 11px;")
         self.lbl_resize_notice.setVisible(False)
         left_layout.addWidget(self.lbl_resize_notice)
 

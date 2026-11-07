@@ -38,6 +38,7 @@ from src.ui.dialogs.experiment_action_dialog import (
     ExperimentActionDialog, ExperimentAction
 )
 from src.ui.dialogs.column_visibility_dialog import ColumnVisibilityDialog
+from src.ui.theme import current_theme, get_theme_manager, Theme
 from src.ui.dialogs.column_filter_dialog import ColumnFilterDialog
 from src.ui.workers import FunctionWorker
 
@@ -155,7 +156,8 @@ class ImagePreviewLabel(QLabel):
         self._decode_generation: int = 0
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setMinimumSize(200, 150)
-        self.setStyleSheet("background-color: #1e1e1e; color: #888; border-radius: 4px;")
+        self.setProperty("role", "image-preview")
+        self.setStyleSheet("border-radius: 4px;")
         self.show_placeholder()
 
     def set_image(self, file_path: Optional[str], *, blocking: bool = False):
@@ -257,6 +259,7 @@ class ExperimentExplorerWidget(QWidget):
         self._init_ui()
         self._update_history_combo()
         self.restore_view_state()
+        get_theme_manager().theme_changed.connect(self.apply_theme)
 
     @property
     def edit_root_dir(self):
@@ -315,8 +318,8 @@ class ExperimentExplorerWidget(QWidget):
         # 1-2. 視覚的セパレータ（探索データソースと絞り込み設定の分離）（行1）
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setFrameShadow(QFrame.Shadow.Plain)
-        sep.setStyleSheet("color: #e2e8f0; margin: 1px 0px;")
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        sep.setStyleSheet("margin: 1px 0px;")
         ctrl_grid.addWidget(sep, 1, 0, 1, 3)
 
         # 1-3. 絞り込み（フィルタ）行（行2）
@@ -374,7 +377,8 @@ class ExperimentExplorerWidget(QWidget):
 
         table_top_lay = QHBoxLayout()
         self.lbl_table_status = QLabel("探索フォルダを指定して「再読込」を押してください。")
-        self.lbl_table_status.setStyleSheet("color: #666; font-size: 11px;")
+        self.lbl_table_status.setProperty("role", "muted")
+        self.lbl_table_status.setStyleSheet("font-size: 11px;")
         table_top_lay.addWidget(self.lbl_table_status, 1)
 
         self.btn_column_settings = QPushButton("⚙️ カラム表示設定...")
@@ -404,28 +408,6 @@ class ExperimentExplorerWidget(QWidget):
         self.table.itemSelectionChanged.connect(self._on_row_selected)
         self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
 
-        # 選択行の視認性向上: 明るいパステルブルー背景と明瞭な黒文字
-        self.table.setStyleSheet("""
-            QTableWidget {
-                selection-background-color: #d8ebfc;
-                selection-color: #111827;
-                alternate-background-color: #f8fafc;
-                background-color: #ffffff;
-                gridline-color: #e2e8f0;
-            }
-            QTableWidget::item:selected {
-                background-color: #d8ebfc;
-                color: #111827;
-            }
-            QTableWidget::item:selected:!active {
-                background-color: #e5edf6;
-                color: #1f2937;
-            }
-            QTableWidget::item:hover:!selected {
-                background-color: #f1f5f9;
-            }
-        """)
-
         # 列ヘッダーのコンテキストメニュー & ダブルクリック（列フィルター機能）
         header = self.table.horizontalHeader()
         header.setSectionsMovable(True)
@@ -447,7 +429,8 @@ class ExperimentExplorerWidget(QWidget):
         # 選択中レコードの情報表示バー + 閉じるボタン
         preview_top_lay = QHBoxLayout()
         self.lbl_preview_header = QLabel("ログ行を選択するとグラフがプレビュー表示されます。")
-        self.lbl_preview_header.setStyleSheet("font-weight: bold; padding: 4px 6px; background: #eef2f7; border-radius: 3px; font-size: 11px;")
+        self.lbl_preview_header.setProperty("role", "panel-header")
+        self.lbl_preview_header.setStyleSheet("font-weight: bold; padding: 4px 6px; border-radius: 3px; font-size: 11px;")
         self.lbl_preview_header.setWordWrap(True)
         preview_top_lay.addWidget(self.lbl_preview_header, 1)
 
@@ -687,17 +670,19 @@ class ExperimentExplorerWidget(QWidget):
             item_mode.setData(Qt.ItemDataRole.UserRole, record)
             self.table.setItem(row_idx, 0, item_mode)
 
+            theme = current_theme()
+
             # Col 1: Shield (可否)
             sort_shield = 1 if record.use_shield is True else (0 if record.use_shield is False else -1)
             item_shield = SortableTableWidgetItem(record.display_shield, sort_shield)
             item_shield.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             if record.use_shield is True:
-                item_shield.setForeground(QColor("#2e7d32"))  # 緑
+                item_shield.setForeground(QColor(theme.success))  # 緑
                 font_s = item_shield.font()
                 font_s.setBold(True)
                 item_shield.setFont(font_s)
             elif record.use_shield is False:
-                item_shield.setForeground(QColor("#757575"))  # グレー
+                item_shield.setForeground(QColor(theme.text_muted))  # グレー
             self.table.setItem(row_idx, 1, item_shield)
 
             # Col 2: 学習種別 (単一 / 継続)
@@ -705,7 +690,7 @@ class ExperimentExplorerWidget(QWidget):
             item_cl = SortableTableWidgetItem(record.display_cl, sort_cl)
             item_cl.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             if record.is_continual:
-                item_cl.setForeground(QColor("#1565c0"))  # 明瞭なブルー
+                item_cl.setForeground(QColor(theme.info))  # 明瞭なブルー
                 font_cl = item_cl.font()
                 font_cl.setBold(True)
                 item_cl.setFont(font_cl)
@@ -750,6 +735,30 @@ class ExperimentExplorerWidget(QWidget):
         self._update_header_labels()
         self._apply_filter()
 
+    def apply_theme(self, theme: Optional[Theme] = None) -> None:
+        """テーマ変更時にテーブルアイテムの前景色（Shield列、学習種別列）の再設定を行う"""
+        if theme is None:
+            theme = current_theme()
+        c_success = QColor(theme.success)
+        c_muted = QColor(theme.text_muted)
+        c_info = QColor(theme.info)
+
+        for row_idx in range(self.table.rowCount()):
+            item_mode = self.table.item(row_idx, 0)
+            record = item_mode.data(Qt.ItemDataRole.UserRole) if item_mode else None
+            if not record:
+                continue
+
+            item_shield = self.table.item(row_idx, 1)
+            if item_shield:
+                if record.use_shield is True:
+                    item_shield.setForeground(c_success)
+                elif record.use_shield is False:
+                    item_shield.setForeground(c_muted)
+
+            item_cl = self.table.item(row_idx, 2)
+            if item_cl and record.is_continual:
+                item_cl.setForeground(c_info)
 
     def _get_col_base_name(self, col_idx: int) -> str:
         """列インデックスからフィルター記号等を含まないベース列名を取得"""

@@ -22,6 +22,7 @@ from src.core.updater import (
     download_installer,
     launch_installer
 )
+from src.ui.theme import current_theme
 
 
 class _DownloadWorker(QObject):
@@ -108,7 +109,7 @@ class UpdateDialog(QDialog):
 
         ver_text = (
             f"現在のバージョン: <b>v{self.current_version}</b>  ➔  "
-            f"最新バージョン: <b style='color: #0969da;'>v{self.update_info.version}</b>{size_text}"
+            f"最新バージョン: <b style='color: {current_theme().accent};'>v{self.update_info.version}</b>{size_text}"
         )
         ver_label = QLabel(ver_text)
         ver_label.setStyleSheet("font-size: 13px;")
@@ -141,7 +142,8 @@ class UpdateDialog(QDialog):
         prog_layout.setSpacing(4)
 
         self.progress_label = QLabel("ダウンロード準備中...")
-        self.progress_label.setStyleSheet("color: #57606a; font-size: 12px;")
+        self.progress_label.setProperty("role", "muted")
+        self.progress_label.setStyleSheet("font-size: 12px;")
         prog_layout.addWidget(self.progress_label)
 
         self.progress_bar = QProgressBar()
@@ -169,17 +171,8 @@ class UpdateDialog(QDialog):
 
         if self.update_info.installer_download_url:
             self.btn_update = QPushButton("今すぐアップデート (自動インストール)")
-            self.btn_update.setStyleSheet(
-                "QPushButton {"
-                "   background-color: #0969da; color: white; font-weight: bold; padding: 6px 16px;"
-                "}"
-                "QPushButton:hover {"
-                "   background-color: #0858b9;"
-                "}"
-                "QPushButton:disabled {"
-                "   background-color: #8c959f;"
-                "}"
-            )
+            self.btn_update.setProperty("role", "accent")
+            self.btn_update.setStyleSheet("padding: 6px 16px;")
             if not self.update_info.installer_sha256:
                 self.btn_update.setEnabled(False)
                 self.btn_update.setToolTip(
