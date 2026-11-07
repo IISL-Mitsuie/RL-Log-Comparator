@@ -12,23 +12,37 @@ from typing import Optional
 from PySide6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QTextBrowser, QProgressBar, QPushButton,
-    QMessageBox, QFrame
+    QMessageBox, QFrame, QApplication
 )
 from PySide6.QtCore import Signal, QObject
 
-from src.core.updater import UpdateInfo, download_installer, launch_installer_and_exit
+from src.core.updater import (
+    UpdateInfo,
+    UpdateVerificationError,
+    download_installer,
+    launch_installer
+)
 
 
 class _DownloadWorker(QObject):
     """インストーラーダウンロード非同期ワーカー"""
-    progress = Signal(int, str)      # (進捗率 %, メッセージ文字列)
-    finished = Signal(str)           # (保存されたインストーラーパス)
+    progress = Signal(int, str)       # (進捗率 %, メッセージ文字列)
+    finished = Signal(str)            # (保存されたインストーラーパス)
     cancelled = Signal()
-    failed = Signal(str)             # (エラーメッセージ)
+    failed = Signal(str)              # (通常のエラーメッセージ)
+    verification_failed = Signal(str) # (検証エラーメッセージ)
 
-    def __init__(self, download_url: str, filename: Optional[str] = None):
+    def __init__(
+        self,
+        download_url: str,
+        expected_sha256: str,
+        expected_size: int,
+        filename: Optional[str] = None
+    ):
         super().__init__()
         self.download_url = download_url
+        self.expected_sha256 = expected_sha256
+        self.expected_size = expected_size
         self.filename = filename
         self.cancel_event = threading.Event()
 
@@ -45,6 +59,8 @@ class _DownloadWorker(QObject):
 
             save_path = download_installer(
                 self.download_url,
+                expected_sha256=self.expected_sha256,
+                expected_size=self.expected_size,
                 target_filename=self.filename,
                 progress_callback=_on_prog,
                 cancel_event=self.cancel_event
@@ -52,6 +68,8 @@ class _DownloadWorker(QObject):
             self.finished.emit(save_path)
         except InterruptedError:
             self.cancelled.emit()
+        except UpdateVerificationError as e:
+            self.verification_failed.emit(str(e))
         except Exception as e:
             self.failed.emit(str(e))
 
@@ -162,7 +180,13 @@ class UpdateDialog(QDialog):
                 "   background-color: #8c959f;"
                 "}"
             )
-            self.btn_update.clicked.connect(self._start_download)
+            if not self.update_info.installer_sha256:
+                self.btn_update.setEnabled(False)
+                self.btn_update.setToolTip(
+                    "このリリースには検証用ハッシュがないため、自動インストールできません。GitHub から手動でダウンロードしてください"
+                )
+            else:
+                self.btn_update.clicked.connect(self._start_download)
             btn_layout.addWidget(self.btn_update)
         else:
             self.btn_update = None
@@ -190,12 +214,15 @@ class UpdateDialog(QDialog):
 
         self.worker = _DownloadWorker(
             download_url=self.update_info.installer_download_url,
+            expected_sha256=self.update_info.installer_sha256 or "",
+            expected_size=self.update_info.installer_size,
             filename=self.update_info.installer_name
         )
         self.worker.progress.connect(self._on_download_progress)
         self.worker.finished.connect(self._on_download_finished)
         self.worker.cancelled.connect(self._on_download_cancelled)
         self.worker.failed.connect(self._on_download_failed)
+        self.worker.verification_failed.connect(self._on_verification_failed)
 
         self.download_thread = threading.Thread(target=self.worker.run, daemon=True)
         self.download_thread.start()
@@ -203,6 +230,16 @@ class UpdateDialog(QDialog):
     def _on_download_progress(self, pct: int, msg: str):
         self.progress_bar.setValue(pct)
         self.progress_label.setText(msg)
+
+    def _apply_update_and_exit(self, save_path: str):
+        """インストーラーを起動し、メインウィンドウの close() を通して安全にアプリケーションを終了する"""
+        launch_installer(save_path)
+        parent = self.parent()
+        if parent and hasattr(parent, "close"):
+            parent.close()
+        app = QApplication.instance()
+        if app:
+            app.quit()
 
     def _on_download_finished(self, save_path: str):
         self.downloaded_installer_path = save_path
@@ -220,7 +257,7 @@ class UpdateDialog(QDialog):
             self.btn_update.setEnabled(True)
             self.btn_update.setText("今すぐインストール")
             self.btn_update.clicked.disconnect()
-            self.btn_update.clicked.connect(lambda: launch_installer_and_exit(save_path))
+            self.btn_update.clicked.connect(lambda: self._apply_update_and_exit(save_path))
 
         reply = QMessageBox.question(
             self,
@@ -233,7 +270,7 @@ class UpdateDialog(QDialog):
             QMessageBox.StandardButton.Yes
         )
         if reply == QMessageBox.StandardButton.Yes:
-            launch_installer_and_exit(save_path)
+            self._apply_update_and_exit(save_path)
 
     def _open_folder(self, file_path: str):
         """保存先フォルダを開き、ファイルをハイライト"""
@@ -250,6 +287,18 @@ class UpdateDialog(QDialog):
             self.btn_update.setText("今すぐアップデート (自動インストール)")
         self.btn_close.setText("閉じる")
         QMessageBox.information(self, "キャンセル", "ダウンロードを中止しました。")
+
+    def _on_verification_failed(self, err_msg: str):
+        self.progress_container.setVisible(False)
+        if self.btn_update:
+            self.btn_update.setEnabled(True)
+            self.btn_update.setText("今すぐアップデート (自動インストール)")
+        self.btn_close.setText("閉じる")
+        QMessageBox.critical(
+            self,
+            "検証エラー",
+            "ダウンロードしたファイルの検証に失敗しました。通信環境を確認して再試行してください"
+        )
 
     def _on_download_failed(self, err_msg: str):
         self.progress_container.setVisible(False)

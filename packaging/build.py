@@ -5,6 +5,7 @@ builds the PyInstaller binary, compiles the Inno Setup installer,
 and cleans up all temporary build environments.
 """
 import argparse
+import hashlib
 import os
 import re
 import shutil
@@ -15,6 +16,18 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+
+
+def generate_sha256_file(file_path: Path) -> Path:
+    """<ファイル名>.sha256 を '<64桁16進> *<ファイル名>' 形式で生成する（sha256sum互換）"""
+    hasher = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        while chunk := f.read(1024 * 1024):
+            hasher.update(chunk)
+    sha256_hex = hasher.hexdigest().lower()
+    sha256_path = file_path.with_name(f"{file_path.name}.sha256")
+    sha256_path.write_text(f"{sha256_hex} *{file_path.name}\n", encoding="utf-8")
+    return sha256_path
 
 
 def read_app_version(root: Path) -> str:
@@ -328,9 +341,14 @@ def main():
                 if attempt == 4:
                     print(f"[WARNING] Could not copy dist to project: {e}")
 
-    # Copy installer exe and portable zip
+    # Copy installer exe, checksum, and portable zip
     if temp_installer_dir.exists():
-        for f in list(temp_installer_dir.glob("*.exe")) + list(temp_installer_dir.glob("*.zip")):
+        # インストーラー .exe の SHA-256 チェックサムを生成
+        for exe_f in temp_installer_dir.glob("*.exe"):
+            sha_f = generate_sha256_file(exe_f)
+            print(f"[INFO] Generated checksum file: {sha_f.name}")
+
+        for f in list(temp_installer_dir.glob("*.exe")) + list(temp_installer_dir.glob("*.sha256")) + list(temp_installer_dir.glob("*.zip")):
             dest = installer_output_dir / f.name
             for attempt in range(5):
                 try:
@@ -358,6 +376,8 @@ def main():
     setup_exe = installer_output_dir / f"RL_Log_Comparator_Setup_v{app_version}.exe"
     if setup_exe.exists():
         print(f"  [SUCCESS] Windows Installer: {setup_exe}")
+        setup_sha = generate_sha256_file(setup_exe)
+        print(f"  [SUCCESS] SHA-256 Checksum:  {setup_sha}")
     portable_zip = installer_output_dir / f"RL_Log_Comparator_v{app_version}_portable.zip"
     if portable_zip.exists():
         print(f"  [SUCCESS] Portable ZIP:      {portable_zip}")

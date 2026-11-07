@@ -29,10 +29,28 @@ from src.core.paths import get_app_icon_path
 from src.ui.error_dialog import ErrorDialogNotifier
 from src.ui.main_window import ExperimentCompareApp
 
+_APP_MUTEX_HANDLE = None
+
+
+def init_app_mutex() -> None:
+    """Windows 環境下でインストーラー待機用の AppMutex を作成しプロセス終了まで保持"""
+    global _APP_MUTEX_HANDLE
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            _APP_MUTEX_HANDLE = ctypes.windll.kernel32.CreateMutexW(
+                None, False, "RLLogComparator_AppMutex"
+            )
+        except Exception:
+            pass
+
 
 def main():
     # 0. ログファイルの設定（配布版でもエラーの詳細を残す。環境の初期化中のログも記録するため最初に行う）
     log_path = setup_logging()
+
+    # 0.1 Windows 環境で AppMutex を作成
+    init_app_mutex()
 
     # 1. 実行環境・Matplotlib・フォントの初期設定
     initialize_environment()

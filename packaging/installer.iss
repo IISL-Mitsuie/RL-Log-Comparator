@@ -12,6 +12,7 @@ AppId={{C9C1FFA6-677E-4772-8419-E94C1F7F7772}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
+AppMutex=RLLogComparator_AppMutex
 DefaultDirName={localappdata}\Programs\RL-Log-Comparator
 DefaultGroupName={#MyAppName}
 OutputDir=..\dist_installer
