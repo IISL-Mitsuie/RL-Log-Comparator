@@ -272,7 +272,25 @@ build_all.bat --use-current-env --skip-tests
 5. **バイナリビルド**: PyInstaller（[`packaging/RL-Log-Comparator.spec`](packaging/RL-Log-Comparator.spec)）により `--onedir` 形式で高速起動可能な単体実行ファイル群（`dist/RL-Log-Comparator/`）をビルド。
 6. **ポータブル版 ZIP の生成**: 配布用のポータブルアーカイブ（`dist_installer/RL_Log_Comparator_v<バージョン>_portable.zip`）を自動生成。
 7. **セットアップインストーラー生成**: Inno Setup 6 (`ISCC.exe`) を自動検知し、`/DMyAppVersion=<バージョン>` を注入して [`packaging/installer.iss`](packaging/installer.iss) からセットアップインストーラー（`dist_installer/RL_Log_Comparator_Setup_v<バージョン>.exe`）を生成。
-8. **成果物の配置とクリーンアップ**: 生成物をプロジェクトルートの `dist/` および `dist_installer/` にコピーし、一時仮想環境や作業ディレクトリを自動削除。
+8. **成果物の配置とクリーンアップ**: 生成物をプロジェクトルートの `dist/` および `dist_installer/` にコピーし、インストーラーの SHA-256 チェックサムファイル（`.sha256`）を出力したのち、一時仮想環境や作業ディレクトリを自動削除。
+
+### リリース手順
+GitHub Releases に新しいバージョンを公開する際は、以下の手順に従ってください：
+
+1. **リポジトリ所有者アカウントの 2 段階認証（2FA）の確認**
+   * 安全な配布のため、GitHub リポジトリの所有者・管理者アカウントで 2 段階認証（2FA）が有効であることを確認します。
+2. **クリーンビルドの実行**
+   * `build_all.bat` または `python packaging/build.py` を実行し、全自動で成果物を生成します。
+3. **成果物の確認**
+   * `dist_installer/` 配下に以下のファイルが生成されていることを確認します：
+     * `RL_Log_Comparator_Setup_v<バージョン>.exe`（Windows セットアップインストーラー）
+     * `RL_Log_Comparator_Setup_v<バージョン>.exe.sha256`（SHA-256 チェックサムファイル）
+     * `RL_Log_Comparator_v<バージョン>_portable.zip`（ポータブル版 ZIP アーカイブ）
+4. **GitHub Releases への添付**
+   * バージョンタグ（`v<バージョン>`）をプッシュし、GitHub Releases を作成します。
+   * **インストーラー（`.exe`）とチェックサムファイル（`.sha256`）の両方を必ずリリースアセットに添付**してください。
+     * 本アプリの自動更新機能は、安全対策としてダウンロード時に SHA-256 チェックサムの照合を強制します。`.sha256` ファイル（または GitHub REST API の digest）が存在しない場合、安全のためアプリ内自動インストールが無効化されます。
+   * 必要に応じてポータブル版 ZIP も合わせて添付し、リリースを公開します。
 
 ---
 

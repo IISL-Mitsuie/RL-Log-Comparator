@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QFileDialog, QMessageBox, QStatusBar, QProgressBar
 )
 from PySide6.QtGui import QIcon
-from PySide6.QtCore import QObject, Signal, Qt, QThreadPool, QTimer
+from PySide6.QtCore import Qt, QThreadPool, QTimer
 
 
 from src.config import (
@@ -580,13 +580,15 @@ class ExperimentCompareApp(QMainWindow):
     # -------------------------------------------------------------------------
     def _start_background_update_check(self) -> None:
         """起動時の非同期バックグラウンド更新確認"""
-        import threading
-        self._bg_worker = _UpdateCheckWorker(
-            GITHUB_REPO_OWNER, GITHUB_REPO_NAME, APP_VERSION, UPDATE_CHECK_TIMEOUT_SEC
+        worker = FunctionWorker(
+            fetch_latest_release_info,
+            GITHUB_REPO_OWNER,
+            GITHUB_REPO_NAME,
+            APP_VERSION,
+            UPDATE_CHECK_TIMEOUT_SEC,
         )
-        self._bg_worker.finished.connect(self._apply_update_info)
-        self._bg_thread = threading.Thread(target=self._bg_worker.run, daemon=True)
-        self._bg_thread.start()
+        worker.signals.finished.connect(lambda gen, info: self._apply_update_info(info))
+        QThreadPool.globalInstance().start(worker)
 
     def _apply_update_info(self, info: Optional[UpdateInfo]) -> None:
         """更新情報の取得結果をUIに反映"""
@@ -628,13 +630,16 @@ class ExperimentCompareApp(QMainWindow):
         self.btn_update_header.setEnabled(False)
         self.btn_update_header.setText("🔄 確認中...")
 
-        import threading
-        self._manual_worker = _UpdateCheckWorker(
-            GITHUB_REPO_OWNER, GITHUB_REPO_NAME, APP_VERSION, UPDATE_CHECK_TIMEOUT_SEC
+        worker = FunctionWorker(
+            fetch_latest_release_info,
+            GITHUB_REPO_OWNER,
+            GITHUB_REPO_NAME,
+            APP_VERSION,
+            UPDATE_CHECK_TIMEOUT_SEC,
         )
-        self._manual_worker.finished.connect(self._on_manual_check_finished)
-        self._manual_thread = threading.Thread(target=self._manual_worker.run, daemon=True)
-        self._manual_thread.start()
+        worker.signals.finished.connect(lambda gen, info: self._on_manual_check_finished(info))
+        worker.signals.failed.connect(lambda gen, err: self._on_manual_check_finished(None))
+        QThreadPool.globalInstance().start(worker)
 
     def _on_manual_check_finished(self, info: Optional[UpdateInfo]) -> None:
         """手動更新確認完了時のハンドラ (GUIスレッド)"""
@@ -672,23 +677,5 @@ class ExperimentCompareApp(QMainWindow):
             f"https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}</a></p>"
             f"<p>© 2026 IISL Mitsuie Lab. All rights reserved.</p>"
         )
-
-
-class _UpdateCheckWorker(QObject):
-    """更新確認用非同期ワーカー (Qt Signalブリッジ)"""
-    finished = Signal(object)
-
-    def __init__(self, owner: str, repo: str, version: str, timeout: float):
-        super().__init__()
-        self.owner = owner
-        self.repo = repo
-        self.version = version
-        self.timeout = timeout
-
-    def run(self):
-        info = fetch_latest_release_info(
-            self.owner, self.repo, self.version, timeout_sec=self.timeout
-        )
-        self.finished.emit(info)
 
 

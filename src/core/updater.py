@@ -4,21 +4,29 @@ GitHub Releases API を利用した新バージョン確認・インストーラ
 依存ライブラリ: Python 標準ライブラリのみ
 """
 
+import hashlib
+import json
 import logging
 import os
-import sys
-import json
-import urllib.request
-import urllib.error
+import re
 import subprocess
+import sys
 import tempfile
 import threading
-from typing import Optional, Callable, Tuple
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
+from typing import Callable, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 GITHUB_API_LATEST_RELEASE_URL = "https://api.github.com/repos/{owner}/{repo}/releases/latest"
+INSTALLER_NAME_PATTERN = re.compile(r"^RL_Log_Comparator_Setup_v\d+\.\d+\.\d+\.exe$")
+
+
+class UpdateVerificationError(Exception):
+    """ダウンロードしたインストーラーの検証（ハッシュまたはサイズ）に失敗したときの例外"""
+    pass
 
 
 @dataclass
@@ -33,6 +41,7 @@ class UpdateInfo:
     installer_download_url: Optional[str] = None # .exe などのインストーラー直接DL URL
     installer_name: Optional[str] = None         # インストーラーファイル名
     installer_size: int = 0                      # ファイルサイズ (バイト)
+    installer_sha256: Optional[str] = None       # 期待される SHA-256 ハッシュ (64桁16進小文字)
     is_update_available: bool = False            # 新バージョンが存在するかどうか
 
 
@@ -111,19 +120,51 @@ def fetch_latest_release_info(
     release_url = data.get("html_url", "")
     published_at = data.get("published_at", "")
 
-    # Windows インストーラー (.exe) アセットを探索
+    # Windows インストーラー (.exe) アセットを探索（正規表現に一致するものに限定）
     installer_url = None
     installer_name = None
     installer_size = 0
+    installer_sha256 = None
 
     assets = data.get("assets", [])
+    target_asset = None
     for asset in assets:
         name = asset.get("name", "")
-        if name.lower().endswith(".exe"):
+        if INSTALLER_NAME_PATTERN.match(name):
+            target_asset = asset
             installer_url = asset.get("browser_download_url")
             installer_name = name
             installer_size = asset.get("size", 0)
             break
+
+    if target_asset and installer_name:
+        # 1. asset の digest フィールドを確認 ("sha256:<hex>")
+        digest = target_asset.get("digest")
+        if isinstance(digest, str) and digest.lower().startswith("sha256:"):
+            hex_part = digest.split(":", 1)[1].strip().lower()
+            if len(hex_part) == 64 and re.match(r"^[0-9a-f]{64}$", hex_part):
+                installer_sha256 = hex_part
+
+        # 2. digest がなければ、同リリースの <インストーラー名>.sha256 アセットを探す
+        if not installer_sha256:
+            sha256_asset_name = f"{installer_name}.sha256"
+            sha256_url = None
+            for asset in assets:
+                if asset.get("name") == sha256_asset_name:
+                    sha256_url = asset.get("browser_download_url")
+                    break
+
+            if sha256_url:
+                try:
+                    sha_req = urllib.request.Request(sha256_url, headers=headers)
+                    with urllib.request.urlopen(sha_req, timeout=timeout_sec) as sha_resp:
+                        if sha_resp.status == 200:
+                            content = sha_resp.read().decode("utf-8", errors="ignore").strip()
+                            match = re.match(r"^([0-9a-fA-F]{64})", content)
+                            if match:
+                                installer_sha256 = match.group(1).lower()
+                except Exception:
+                    logger.debug("SHA-256 アセットの取得に失敗しました: %s", sha256_url, exc_info=True)
 
     update_available = is_newer_version(current_version, version_str)
 
@@ -137,76 +178,106 @@ def fetch_latest_release_info(
         installer_download_url=installer_url,
         installer_name=installer_name,
         installer_size=installer_size,
+        installer_sha256=installer_sha256,
         is_update_available=update_available
     )
 
 
-def check_for_updates_async(
-    repo_owner: str,
-    repo_name: str,
-    current_version: str,
-    on_complete: Callable[[Optional[UpdateInfo]], None],
-    timeout_sec: float = 5.0
-) -> threading.Thread:
-    """
-    最新バージョンをバックグラウンドスレッドで非同期確認
-    """
-    def _worker():
-        info = fetch_latest_release_info(repo_owner, repo_name, current_version, timeout_sec)
-        on_complete(info)
-
-    thread = threading.Thread(target=_worker, daemon=True, name="UpdateCheckWorker")
-    thread.start()
-    return thread
-
-
 def download_installer(
     download_url: str,
+    expected_sha256: str,
+    expected_size: int,
     target_filename: Optional[str] = None,
     progress_callback: Optional[Callable[[int, int], None]] = None,
     cancel_event: Optional[threading.Event] = None,
     chunk_size: int = 65536
 ) -> str:
     """
-    インストーラーを %TEMP% 配下にストリーミングダウンロード
-    戻り値: 保存されたインストーラーの絶対パス
+    インストーラーを一時フォルダ配下にストリーミングダウンロードし、完全性を検証する。
+
+    保存先は tempfile.mkdtemp(prefix="rllc_update_") 内の <名前>.part とし、
+    チャンクごとに hashlib.sha256() を更新する。
+    完了後、バイト数が expected_size と一致し、かつ SHA-256 が expected_sha256 と一致する場合のみ
+    正式名に os.replace する。不一致なら .part を削除して UpdateVerificationError を送出する。
+
+    戻り値:
+        検証済みのインストーラー実行ファイルの絶対パス
+    例外:
+        UpdateVerificationError: サイズまたはSHA-256ハッシュが期待値と不一致の場合
+        InterruptedError: ユーザーによりダウンロードがキャンセルされた場合
     """
-    temp_dir = tempfile.gettempdir()
+    temp_dir = tempfile.mkdtemp(prefix="rllc_update_")
     if not target_filename:
-        target_filename = os.path.basename(download_url.split("?")[0]) or "Setup_Update.exe"
-    save_path = os.path.join(temp_dir, target_filename)
+        target_filename = os.path.basename(download_url.split("?")[0]) or "RL_Log_Comparator_Setup.exe"
+
+    final_path = os.path.join(temp_dir, target_filename)
+    part_path = os.path.join(temp_dir, f"{target_filename}.part")
 
     req = urllib.request.Request(download_url, headers={"User-Agent": "AppUpdater/1.0"})
-    with urllib.request.urlopen(req, timeout=30.0) as resp:
-        total_size = int(resp.headers.get("Content-Length", 0))
-        downloaded = 0
+    hasher = hashlib.sha256()
+    downloaded = 0
 
-        with open(save_path, "wb") as f:
-            while True:
-                if cancel_event and cancel_event.is_set():
-                    f.close()
-                    if os.path.exists(save_path):
-                        try:
-                            os.remove(save_path)
-                        except OSError:
-                            logger.debug("中断したダウンロードファイルを削除できませんでした: %s", save_path, exc_info=True)
-                    raise InterruptedError("Download was cancelled by user.")
+    try:
+        with urllib.request.urlopen(req, timeout=30.0) as resp:
+            content_len_header = resp.headers.get("Content-Length")
+            total_size = int(content_len_header) if content_len_header and content_len_header.isdigit() else expected_size
 
-                chunk = resp.read(chunk_size)
-                if not chunk:
-                    break
-                f.write(chunk)
-                downloaded += len(chunk)
+            with open(part_path, "wb") as f:
+                while True:
+                    if cancel_event and cancel_event.is_set():
+                        f.close()
+                        if os.path.exists(part_path):
+                            try:
+                                os.remove(part_path)
+                            except OSError:
+                                logger.debug("中断したダウンロードファイルを削除できませんでした: %s", part_path, exc_info=True)
+                        raise InterruptedError("Download was cancelled by user.")
 
-                if progress_callback:
-                    progress_callback(downloaded, total_size)
+                    chunk = resp.read(chunk_size)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    hasher.update(chunk)
+                    downloaded += len(chunk)
 
-    return save_path
+                    if progress_callback:
+                        progress_callback(downloaded, total_size or expected_size)
+
+        # 完全性検証
+        clean_expected_hash = expected_sha256.strip().lower()
+        actual_hash = hasher.hexdigest().lower()
+
+        if downloaded != expected_size:
+            raise UpdateVerificationError(
+                f"ファイルサイズの検証に失敗しました (期待値: {expected_size} bytes, 実際: {downloaded} bytes)"
+            )
+
+        if actual_hash != clean_expected_hash:
+            raise UpdateVerificationError(
+                f"SHA-256 ハッシュの検証に失敗しました (期待値: {clean_expected_hash}, 実際: {actual_hash})"
+            )
+
+        # 検証成功：正式ファイル名へ移動
+        os.replace(part_path, final_path)
+        return final_path
+
+    except Exception:
+        if os.path.exists(part_path):
+            try:
+                os.remove(part_path)
+            except OSError:
+                pass
+        if os.path.exists(temp_dir):
+            try:
+                os.rmdir(temp_dir)
+            except OSError:
+                pass
+        raise
 
 
-def launch_installer_and_exit(installer_path: str) -> None:
+def launch_installer(installer_path: str) -> None:
     """
-    インストーラーを独立プロセスで起動し、現在のアプリケーション自身を正常終了する
+    インストーラーを独立プロセスで起動する（アプリ自体の終了は呼び出し元で行う）
     """
     abs_path = os.path.abspath(installer_path)
     if not os.path.exists(abs_path):
@@ -222,4 +293,9 @@ def launch_installer_and_exit(installer_path: str) -> None:
     else:
         subprocess.Popen([abs_path], close_fds=True)
 
+
+def launch_installer_and_exit(installer_path: str) -> None:
+    """後方互換用エイリアス: インストーラーを起動し、sys.exit(0) を呼ぶ"""
+    launch_installer(installer_path)
     sys.exit(0)
+
