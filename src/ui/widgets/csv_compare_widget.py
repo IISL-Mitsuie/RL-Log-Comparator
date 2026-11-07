@@ -618,7 +618,22 @@ class CsvCompareWidget(QWidget):
 
             show_boundaries = False  # 個別タスク比較では全体境界線は描画しない
             show_convergence = self.cb_converged_points.isChecked()
-            default_x_label = "Task Episode (エピソード [1..N])"
+
+            # タスク絞り込み時（opt.task_id >= 0 かつ全タスク統合でない場合）は従来どおり Task_Episode 基準のラベルとし、
+            # 汎用 CSV 等で step 列などが使われた場合は実際の列名を反映する
+            is_task_filter_a = opt_a is not None and opt_a.task_id > 0
+            is_task_filter_b = opt_b is not None and opt_b.task_id > 0
+            has_task_filter = (
+                (is_task_filter_a and (data_a.has_data or not data_b.has_data))
+                or (is_task_filter_b and (data_b.has_data or not data_a.has_data))
+            )
+            if has_task_filter:
+                default_x_label = "Task Episode (エピソード [1..N])"
+            else:
+                if data_a.has_data or not data_b.has_data:
+                    default_x_label = data_a.x_label or data_b.x_label or EPISODE_X_LABEL
+                else:
+                    default_x_label = data_b.x_label or EPISODE_X_LABEL
             default_chart_title = f"学習推移比較: {title_metric_name} (A: {task_name_a} vs B: {task_name_b})"
 
         else:
@@ -638,14 +653,15 @@ class CsvCompareWidget(QWidget):
                     default_x_label = data_a.x_label or data_b.x_label or EPISODE_X_LABEL
                 else:
                     default_x_label = data_b.x_label or EPISODE_X_LABEL
-                # A と B で X 軸の種類（エピソード / ステップ等）が異なる場合は両方を示す
-                x_axis_mismatch = bool(
-                    data_a.has_data and data_b.has_data
-                    and data_a.x_kind and data_b.x_kind and data_a.x_kind != data_b.x_kind
-                )
-                if x_axis_mismatch:
-                    default_x_label = f"A: {data_a.x_label} / B: {data_b.x_label}"
             default_chart_title = f"学習推移比較: {title_metric_name}"
+
+        # A と B で X 軸の種類（エピソード / ステップ等）が異なる場合は両方を示す（通常モード・個別モード共通）
+        x_axis_mismatch = bool(
+            data_a.has_data and data_b.has_data
+            and data_a.x_kind and data_b.x_kind and data_a.x_kind != data_b.x_kind
+        )
+        if x_axis_mismatch:
+            default_x_label = f"A: {data_a.x_label} / B: {data_b.x_label}"
 
         default_y_label = data_a.y_label or data_b.y_label or "Value"
 
