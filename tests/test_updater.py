@@ -5,6 +5,7 @@
 import hashlib
 import json
 import os
+import tempfile
 import threading
 import unittest
 import urllib.error
@@ -303,14 +304,26 @@ class TestUpdater(unittest.TestCase):
         mock_resp.read.side_effect = [content, b""]
         mock_urlopen.return_value.__enter__.return_value = mock_resp
 
-        with self.assertRaises(UpdateVerificationError) as ctx:
-            download_installer(
-                download_url="https://example.com/test_setup.exe",
-                expected_sha256=different_hash,
-                expected_size=len(content),
-                target_filename="test_bad_hash.exe"
-            )
+        created_dirs = []
+        original_mkdtemp = tempfile.mkdtemp
+
+        def _spy_mkdtemp(*args, **kwargs):
+            d = original_mkdtemp(*args, **kwargs)
+            created_dirs.append(d)
+            return d
+
+        with patch("tempfile.mkdtemp", side_effect=_spy_mkdtemp):
+            with self.assertRaises(UpdateVerificationError) as ctx:
+                download_installer(
+                    download_url="https://example.com/test_setup.exe",
+                    expected_sha256=different_hash,
+                    expected_size=len(content),
+                    target_filename="test_bad_hash.exe"
+                )
         self.assertIn("SHA-256", str(ctx.exception))
+        self.assertTrue(len(created_dirs) > 0)
+        for d in created_dirs:
+            self.assertFalse(os.path.exists(d))
 
     @patch("urllib.request.urlopen")
     def test_download_installer_size_mismatch(self, mock_urlopen):
@@ -322,14 +335,26 @@ class TestUpdater(unittest.TestCase):
         mock_resp.read.side_effect = [content, b""]
         mock_urlopen.return_value.__enter__.return_value = mock_resp
 
-        with self.assertRaises(UpdateVerificationError) as ctx:
-            download_installer(
-                download_url="https://example.com/test_setup.exe",
-                expected_sha256=expected_hash,
-                expected_size=1000,  # 期待値は1000だが実際はlen(content)
-                target_filename="test_bad_size.exe"
-            )
+        created_dirs = []
+        original_mkdtemp = tempfile.mkdtemp
+
+        def _spy_mkdtemp(*args, **kwargs):
+            d = original_mkdtemp(*args, **kwargs)
+            created_dirs.append(d)
+            return d
+
+        with patch("tempfile.mkdtemp", side_effect=_spy_mkdtemp):
+            with self.assertRaises(UpdateVerificationError) as ctx:
+                download_installer(
+                    download_url="https://example.com/test_setup.exe",
+                    expected_sha256=expected_hash,
+                    expected_size=1000,  # 期待値は1000だが実際はlen(content)
+                    target_filename="test_bad_size.exe"
+                )
         self.assertIn("ファイルサイズ", str(ctx.exception))
+        self.assertTrue(len(created_dirs) > 0)
+        for d in created_dirs:
+            self.assertFalse(os.path.exists(d))
 
     @patch("urllib.request.urlopen")
     def test_download_installer_cancelled(self, mock_urlopen):
@@ -341,25 +366,32 @@ class TestUpdater(unittest.TestCase):
         cancel_event = threading.Event()
         cancel_event.set()  # すでにキャンセル状態
 
-        with self.assertRaises(InterruptedError):
-            download_installer(
-                download_url="https://example.com/test_cancel.exe",
-                expected_sha256="a" * 64,
-                expected_size=100,
-                target_filename="test_cancel.exe",
-                cancel_event=cancel_event
-            )
+        created_dirs = []
+        original_mkdtemp = tempfile.mkdtemp
+
+        def _spy_mkdtemp(*args, **kwargs):
+            d = original_mkdtemp(*args, **kwargs)
+            created_dirs.append(d)
+            return d
+
+        with patch("tempfile.mkdtemp", side_effect=_spy_mkdtemp):
+            with self.assertRaises(InterruptedError):
+                download_installer(
+                    download_url="https://example.com/test_cancel.exe",
+                    expected_sha256="a" * 64,
+                    expected_size=100,
+                    target_filename="test_cancel.exe",
+                    cancel_event=cancel_event
+                )
+        self.assertTrue(len(created_dirs) > 0)
+        for d in created_dirs:
+            self.assertFalse(os.path.exists(d))
 
     def test_launch_installer_nonexistent(self):
         with self.assertRaises(FileNotFoundError):
             launch_installer("C:\\nonexistent_installer_file_12345.exe")
         with self.assertRaises(FileNotFoundError):
             launch_installer_and_exit("C:\\nonexistent_installer_file_12345.exe")
-
-
-if __name__ == "__main__":
-    unittest.main()
-
 
 
 if __name__ == "__main__":

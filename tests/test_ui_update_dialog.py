@@ -102,11 +102,14 @@ class TestUiUpdateDialog(unittest.TestCase):
         parent_close_mock = MagicMock()
         parent.close = parent_close_mock
         dialog = UpdateDialog(parent, self.dummy_update_info, current_version="1.0.0")
+        dialog_accept_mock = MagicMock()
+        dialog.accept = dialog_accept_mock
 
         dummy_installer_path = "C:\\path\\to\\Setup.exe"
         dialog._apply_update_and_exit(dummy_installer_path)
 
         mock_launch.assert_called_once_with(dummy_installer_path)
+        dialog_accept_mock.assert_called_once()
         parent_close_mock.assert_called_once()
         mock_quit.assert_called_once()
         parent.deleteLater()

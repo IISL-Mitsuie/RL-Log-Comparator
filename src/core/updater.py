@@ -248,21 +248,11 @@ def download_installer(
         actual_hash = hasher.hexdigest().lower()
 
         if downloaded != expected_size:
-            if os.path.exists(part_path):
-                try:
-                    os.remove(part_path)
-                except OSError:
-                    pass
             raise UpdateVerificationError(
                 f"ファイルサイズの検証に失敗しました (期待値: {expected_size} bytes, 実際: {downloaded} bytes)"
             )
 
         if actual_hash != clean_expected_hash:
-            if os.path.exists(part_path):
-                try:
-                    os.remove(part_path)
-                except OSError:
-                    pass
             raise UpdateVerificationError(
                 f"SHA-256 ハッシュの検証に失敗しました (期待値: {clean_expected_hash}, 実際: {actual_hash})"
             )
@@ -275,6 +265,11 @@ def download_installer(
         if os.path.exists(part_path):
             try:
                 os.remove(part_path)
+            except OSError:
+                pass
+        if os.path.exists(temp_dir):
+            try:
+                os.rmdir(temp_dir)
             except OSError:
                 pass
         raise

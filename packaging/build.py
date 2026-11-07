@@ -376,7 +376,9 @@ def main():
     setup_exe = installer_output_dir / f"RL_Log_Comparator_Setup_v{app_version}.exe"
     if setup_exe.exists():
         print(f"  [SUCCESS] Windows Installer: {setup_exe}")
-        setup_sha = generate_sha256_file(setup_exe)
+        setup_sha = setup_exe.with_name(f"{setup_exe.name}.sha256")
+        if not setup_sha.exists():
+            setup_sha = generate_sha256_file(setup_exe)
         print(f"  [SUCCESS] SHA-256 Checksum:  {setup_sha}")
     portable_zip = installer_output_dir / f"RL_Log_Comparator_v{app_version}_portable.zip"
     if portable_zip.exists():

@@ -234,6 +234,7 @@ class UpdateDialog(QDialog):
     def _apply_update_and_exit(self, save_path: str):
         """インストーラーを起動し、メインウィンドウの close() を通して安全にアプリケーションを終了する"""
         launch_installer(save_path)
+        self.accept()
         parent = self.parent()
         if parent and hasattr(parent, "close"):
             parent.close()
