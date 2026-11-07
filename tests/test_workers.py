@@ -77,6 +77,38 @@ class TestWorkers(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0], (1, "cancelled"))
 
+    def test_worker_survives_gc_when_started_as_local_variable(self):
+        """ローカル変数のみでワーカーを起動し gc.collect() しても finished / failed の lambda が呼ばれること"""
+        import gc
+        pool = QThreadPool()
+        finished_called = []
+        failed_called = []
+
+        def run_finished_worker():
+            worker = FunctionWorker(sample_task, 100, 200, generation=10)
+            worker.signals.finished.connect(lambda gen, res: finished_called.append((gen, res)))
+            pool.start(worker)
+
+        def run_failed_worker():
+            worker = FunctionWorker(sample_failing_task, generation=20)
+            worker.signals.failed.connect(lambda gen, msg: failed_called.append((gen, msg)))
+            pool.start(worker)
+
+        run_finished_worker()
+        run_failed_worker()
+
+        # 強制的に GC を実行してローカルスコープから外れた worker を回収しようとする
+        gc.collect()
+
+        pool.waitForDone(2000)
+        self.app.processEvents()
+
+        self.assertEqual(len(finished_called), 1)
+        self.assertEqual(finished_called[0], (10, 300))
+        self.assertEqual(len(failed_called), 1)
+        self.assertEqual(failed_called[0][0], 20)
+        self.assertIn("intentional error", failed_called[0][1])
+
 
 if __name__ == "__main__":
     unittest.main()

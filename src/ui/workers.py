@@ -1,8 +1,8 @@
 import inspect
 import logging
 import threading
-from typing import Any, Callable
-from PySide6.QtCore import QObject, QRunnable, Signal
+from typing import Any, Callable, Optional
+from PySide6.QtCore import QObject, QRunnable, Signal, Qt, QCoreApplication
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +15,40 @@ class WorkerSignals(QObject):
     finished = Signal(int, object)    # (generation, result)
     failed = Signal(int, str)         # (generation, error_message)
     progress = Signal(int, int, str)  # (generation, count, message)
+
+
+class WorkerLifecycleManager(QObject):
+    """
+    FunctionWorker の強参照を保持し、メインスレッド上のシグナル配送完了後に安全に破棄するマネージャー。
+    """
+    release_requested = Signal(object)
+
+    def __init__(self, parent: Optional[QObject] = None):
+        super().__init__(parent)
+        self._active_workers: set["FunctionWorker"] = set()
+        self.release_requested.connect(
+            self._on_release_worker,
+            Qt.ConnectionType.QueuedConnection
+        )
+
+    def retain(self, worker: "FunctionWorker") -> None:
+        self._active_workers.add(worker)
+
+    def _on_release_worker(self, worker: Any) -> None:
+        self._active_workers.discard(worker)
+
+
+_lifecycle_manager: Optional[WorkerLifecycleManager] = None
+
+
+def get_worker_lifecycle_manager() -> Optional[WorkerLifecycleManager]:
+    """メインスレッド所属の WorkerLifecycleManager シングルトンを取得（QCoreApplication 存在時）"""
+    global _lifecycle_manager
+    if _lifecycle_manager is None:
+        app = QCoreApplication.instance()
+        if app is not None:
+            _lifecycle_manager = WorkerLifecycleManager(parent=app)
+    return _lifecycle_manager
 
 
 class FunctionWorker(QRunnable):
@@ -37,7 +71,11 @@ class FunctionWorker(QRunnable):
         self.generation = generation
         self.signals = WorkerSignals()
         self.cancel_event = threading.Event()
-        self.setAutoDelete(True)
+        self.setAutoDelete(False)
+
+        mgr = get_worker_lifecycle_manager()
+        if mgr is not None:
+            mgr.retain(self)
 
     def cancel(self) -> None:
         """ワーカーにキャンセル要求を発行"""
@@ -62,3 +100,8 @@ class FunctionWorker(QRunnable):
         except Exception as exc:
             logger.exception("Worker failed")
             self.signals.failed.emit(self.generation, str(exc))
+        finally:
+            mgr = get_worker_lifecycle_manager()
+            if mgr is not None:
+                mgr.release_requested.emit(self)
+

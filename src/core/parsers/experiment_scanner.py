@@ -317,6 +317,8 @@ def scan_experiments_directory(
                 break
             dirs_to_remove = []
             for d in dirs:
+                if cancel_event is not None and cancel_event.is_set():
+                    break
                 full_path = os.path.join(root, d)
                 if d.startswith("output_") or re.search(r'\d{8}_\d{6}', d):
                     candidate_folders.append(full_path)

@@ -1,9 +1,9 @@
-from typing import Any, Optional
 """
 ハイパーパラメータ (YAML) 差分比較ビューウィジェット
 """
 
 import os
+from typing import Any, Optional
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
     QCheckBox, QPushButton, QLabel, QHeaderView

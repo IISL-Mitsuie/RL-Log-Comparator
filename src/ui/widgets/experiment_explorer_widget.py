@@ -72,13 +72,42 @@ MAX_PREVIEW_EDGE = 1600
 
 
 @lru_cache(maxsize=64)
-def _load_and_scale_image(file_path: str, mtime: float, target_w: int, target_h: int) -> Optional[QImage]:
+def _decode_scaled_image_cached(
+    file_path: str,
+    mtime: float,
+    dest_w: int,
+    dest_h: int
+) -> Optional[QImage]:
     """
-    画像ファイルを長辺最大1600px・指定表示サイズに合わせて縮小デコードする。
-    (file_path, mtime, target_w, target_h) で最大64枚をLRUキャッシュする。
+    指定された実縮小サイズ (dest_w, dest_h) で画像をデコードする。
+    (file_path, mtime, dest_w, dest_h) で最大64枚をLRUキャッシュする。
     """
-    if not file_path or not os.path.isfile(file_path):
+    reader = QImageReader(file_path)
+    if not reader.canRead():
         return None
+    reader.setScaledSize(QSize(dest_w, dest_h))
+    img = reader.read()
+    if img.isNull():
+        reader.setFileName(file_path)
+        img = reader.read()
+    return img if not img.isNull() else None
+
+
+def _load_and_scale_image(file_path: str, target_w: int, target_h: int) -> Optional[QImage]:
+    """
+    ワーカースレッドで実行される画像読み込みパイプライン。
+    os.stat でファイル確認・mtime 取得を行い、QImageReader で元サイズを取得して
+    表示先サイズと MAX_PREVIEW_EDGE(1600) から計算した実縮小サイズ (dest_w, dest_h) を算出し、
+    キャッシュ付き実デコード関数 _decode_scaled_image_cached を呼び出す。
+    """
+    if not file_path:
+        return None
+    try:
+        stat_res = os.stat(file_path)
+        mtime = stat_res.st_mtime
+    except OSError:
+        return None
+
     reader = QImageReader(file_path)
     if not reader.canRead():
         return None
@@ -102,12 +131,7 @@ def _load_and_scale_image(file_path: str, mtime: float, target_w: int, target_h:
         dest_w = max(1, int(dest_w * limit_scale))
         dest_h = max(1, int(dest_h * limit_scale))
 
-    reader.setScaledSize(QSize(dest_w, dest_h))
-    img = reader.read()
-    if img.isNull():
-        reader.setFileName(file_path)
-        img = reader.read()
-    return img if not img.isNull() else None
+    return _decode_scaled_image_cached(file_path, mtime, dest_w, dest_h)
 
 
 class ImagePreviewLabel(QLabel):
@@ -129,24 +153,18 @@ class ImagePreviewLabel(QLabel):
         self._decode_generation += 1
         self._current_path = file_path
 
-        if not file_path or not os.path.isfile(file_path):
+        if not file_path or not str(file_path).strip():
             self._pixmap = None
             self.show_placeholder()
             return
 
         self.show_placeholder("読み込み中…")
 
-        try:
-            mtime = os.path.getmtime(file_path)
-        except OSError:
-            self.show_placeholder("画像の読み込みに失敗しました")
-            return
-
         w = self.width() if self.width() > 0 else 200
         h = self.height() if self.height() > 0 else 150
 
         if blocking:
-            img = _load_and_scale_image(file_path, mtime, w, h)
+            img = _load_and_scale_image(file_path, w, h)
             if img is not None and not img.isNull():
                 self._pixmap = QPixmap.fromImage(img)
                 self.setText("")
@@ -156,10 +174,14 @@ class ImagePreviewLabel(QLabel):
             return
 
         gen = self._decode_generation
-        worker = FunctionWorker(_load_and_scale_image, file_path, mtime, w, h, generation=gen)
+        worker = FunctionWorker(_load_and_scale_image, file_path, w, h, generation=gen)
         worker.signals.finished.connect(self._on_image_decoded)
-        worker.signals.failed.connect(lambda g, _err: self._on_image_decoded(g, None))
+        worker.signals.failed.connect(self._on_image_decode_failed)
         QThreadPool.globalInstance().start(worker)
+
+    def _on_image_decode_failed(self, gen: int, _err: str) -> None:
+        """非同期デコード失敗時のスロット（破棄時の自動 disconnect 対応）"""
+        self._on_image_decoded(gen, None)
 
     def _on_image_decoded(self, gen: int, img: Optional[QImage]):
         if gen != self._decode_generation:

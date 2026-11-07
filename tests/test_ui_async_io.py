@@ -2,7 +2,6 @@
 ISSUE-05: 非同期 I/O、自動読み込みのデバウンス、世代番号、キャンセル動作のテスト
 """
 
-import os
 import shutil
 import tempfile
 import time
@@ -11,7 +10,9 @@ from PySide6.QtGui import QImage, QColor
 from src.ui.main_window import ExperimentCompareApp, ComparisonData
 from src.ui.widgets.experiment_explorer_widget import (
     ExperimentExplorerWidget,
+    ImagePreviewLabel,
     _load_and_scale_image,
+    _decode_scaled_image_cached,
     MAX_PREVIEW_EDGE
 )
 from tests.helpers import create_dummy_experiment_folder, get_qapp
@@ -148,6 +149,23 @@ class TestAsyncIOAndDebounce:
             window._on_load_comparison_finished(5, stale_data)
             mock_apply.assert_called_once_with(5, stale_data)
 
+    def test_load_all_tab_error_isolation(self, qtbot):
+        """画像一覧取得等で例外が発生しても YAML と CSV は正常に表示され、ステータスバーに通知されること"""
+        window = self._create_isolated_window()
+        qtbot.addWidget(window)
+
+        with patch("src.ui.main_window.detect_image_pairs", side_effect=RuntimeError("Image detect error")):
+            window.load_folders(self.folder_a, self.folder_b, blocking=True)
+
+        # YAML と CSV のデータが正常に反映されていること
+        assert window.tab_yaml.yaml_a is not None
+        assert window.tab_csv.df_a is not None
+        # ステータスバーにエラー通知が表示されていること
+        status_text = window.statusBar().currentMessage()
+        assert "読み込みに失敗したタブがあります" in status_text
+        assert "画像目視比較" in status_text
+        assert "RuntimeError: Image detect error" in status_text
+
 
 class TestExplorerAsyncAndPreview:
     """Explorer走査の中止、プレビュー画像の縮小デコード・LRUキャッシュのテスト"""
@@ -160,13 +178,11 @@ class TestExplorerAsyncAndPreview:
         img.fill(QColor(255, 0, 0))
         img.save(large_img_path)
 
-        mtime = os.path.getmtime(large_img_path)
-
-        _load_and_scale_image.cache_clear()
-        initial_info = _load_and_scale_image.cache_info()
+        _decode_scaled_image_cached.cache_clear()
+        initial_info = _decode_scaled_image_cached.cache_info()
 
         # 1回目の読み込み (表示先 400x300)
-        decoded = _load_and_scale_image(large_img_path, mtime, 400, 300)
+        decoded = _load_and_scale_image(large_img_path, 400, 300)
         assert decoded is not None
         assert not decoded.isNull()
         # アスペクト比2:1、400x300に収まるよう 400x200 にスケール
@@ -175,10 +191,27 @@ class TestExplorerAsyncAndPreview:
         assert max(decoded.width(), decoded.height()) <= MAX_PREVIEW_EDGE
 
         # 2回目の同一呼び出しでキャッシュヒットを確認
-        decoded2 = _load_and_scale_image(large_img_path, mtime, 400, 300)
+        decoded2 = _load_and_scale_image(large_img_path, 400, 300)
         assert decoded2 is decoded
-        current_info = _load_and_scale_image.cache_info()
+        current_info = _decode_scaled_image_cached.cache_info()
         assert current_info.hits == initial_info.hits + 1
+
+        # 元画像が小さく拡大不要な場合、表示先サイズが数px変わってもキャッシュヒットすることを検証
+        small_img_path = str(tmp_path / "small_test.png")
+        simg = QImage(100, 100, QImage.Format.Format_RGB32)
+        simg.fill(QColor(0, 255, 0))
+        simg.save(small_img_path)
+
+        hits_before = _decode_scaled_image_cached.cache_info().hits
+        s_decoded1 = _load_and_scale_image(small_img_path, 400, 300)
+        assert s_decoded1 is not None
+        assert s_decoded1.width() == 100
+        assert s_decoded1.height() == 100
+
+        # 表示先サイズが 450x350 に変わっても実縮小サイズは 100x100 なのでキャッシュヒットする
+        s_decoded2 = _load_and_scale_image(small_img_path, 450, 350)
+        assert s_decoded2 is s_decoded1
+        assert _decode_scaled_image_cached.cache_info().hits == hits_before + 1
 
     def test_explorer_scan_cancellation(self, qtbot, tmp_path):
         """走査中に中止した場合、キャンセルフラグが立ち結果が部分反映されること"""
@@ -254,5 +287,23 @@ class TestExplorerAsyncAndPreview:
         # タブを切り替え
         widget.preview_tabs.setCurrentIndex(other_idx)
 
-        # 切り替え先のタブの読み込みが開始されること（読み込み中… または デコード完了）
-        assert other_lbl.text() in ("読み込み中…", "") or other_lbl._pixmap is not None
+        # 非同期デコードが完了し _pixmap が設定されることを検証
+        qtbot.waitUntil(lambda: other_lbl._pixmap is not None, timeout=3000)
+        assert other_lbl.text() == ""
+
+        # 存在しない/破損画像の非同期デコード失敗時にプレースホルダーが「画像の読み込みに失敗しました」に遷移することを検証
+        fail_lbl = ImagePreviewLabel()
+        qtbot.addWidget(fail_lbl)
+        fail_lbl.set_image(str(tmp_path / "non_existent_img.png"), blocking=False)
+        qtbot.waitUntil(lambda: fail_lbl.text() == "画像の読み込みに失敗しました", timeout=3000)
+        assert fail_lbl._pixmap is None
+
+        corrupted_path = str(tmp_path / "corrupted.png")
+        with open(corrupted_path, "wb") as f:
+            f.write(b"not an image file content")
+        corrupt_lbl = ImagePreviewLabel()
+        qtbot.addWidget(corrupt_lbl)
+        corrupt_lbl.set_image(corrupted_path, blocking=False)
+        qtbot.waitUntil(lambda: corrupt_lbl.text() == "画像の読み込みに失敗しました", timeout=3000)
+        assert corrupt_lbl._pixmap is None
+

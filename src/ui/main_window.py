@@ -5,7 +5,7 @@
 import logging
 import os
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 import pandas as pd
 from PySide6.QtWidgets import (
@@ -43,21 +43,22 @@ class ComparisonData:
     """左右フォルダの比較に必要なデータをまとめたデータクラス"""
     folder_a: str
     folder_b: str
-    info_a: str
-    info_b: str
-    yaml_a: Optional[dict[str, Any]]
-    yaml_failed_a: Optional[str]
-    yaml_b: Optional[dict[str, Any]]
-    yaml_failed_b: Optional[str]
-    image_pairs: list[ImagePairItem]
-    folder_images_a: list[tuple[str, str, str]]
-    folder_images_b: list[tuple[str, str, str]]
-    df_a: Optional[pd.DataFrame]
-    df_failed_a: Optional[str]
-    df_b: Optional[pd.DataFrame]
-    df_failed_b: Optional[str]
-    task_options_a: list[TaskOption]
-    task_options_b: list[TaskOption]
+    info_a: str = ""
+    info_b: str = ""
+    yaml_a: Optional[dict[str, Any]] = None
+    yaml_failed_a: Optional[str] = None
+    yaml_b: Optional[dict[str, Any]] = None
+    yaml_failed_b: Optional[str] = None
+    image_pairs: list[ImagePairItem] = field(default_factory=list)
+    folder_images_a: list[tuple[str, str, str]] = field(default_factory=list)
+    folder_images_b: list[tuple[str, str, str]] = field(default_factory=list)
+    df_a: Optional[pd.DataFrame] = None
+    df_failed_a: Optional[str] = None
+    df_b: Optional[pd.DataFrame] = None
+    df_failed_b: Optional[str] = None
+    task_options_a: list[TaskOption] = field(default_factory=list)
+    task_options_b: list[TaskOption] = field(default_factory=list)
+    load_failures: list[str] = field(default_factory=list)
 
 
 def _load_comparison_data(
@@ -65,37 +66,69 @@ def _load_comparison_data(
     folder_b: str,
     cancel_event: Optional[threading.Event] = None
 ) -> ComparisonData:
-    """ワーカースレッドで実行されるデータ読み込み処理"""
-    info_a = get_experiment_info(folder_a)
-    info_b = get_experiment_info(folder_b)
+    """ワーカースレッドで実行されるデータ読み込み処理（タブ単位でエラーを隔離）"""
+    load_failures: list[str] = []
 
-    yaml_a, failed_a = read_yaml_file_with_error(folder_a)
-    yaml_b, failed_b = read_yaml_file_with_error(folder_b)
-
-    image_pairs = detect_image_pairs(folder_a, folder_b)
-    folder_images_a = get_folder_image_list(folder_a)
-    folder_images_b = get_folder_image_list(folder_b)
-
-    df_a = None
-    df_failed_a = None
+    # 1. 実験情報の取得
+    info_a = ""
+    info_b = ""
     try:
-        df_a = read_log_csv(folder_a, raise_on_error=True)
-    except CsvLoadError as e:
-        df_failed_a = os.path.basename(e.path)
-    except Exception as e:
-        df_failed_a = str(e)
+        info_a = get_experiment_info(folder_a)
+        info_b = get_experiment_info(folder_b)
+    except Exception:
+        logger.exception("実験情報の取得に失敗しました")
 
-    df_b = None
-    df_failed_b = None
+    # 2. YAML差分
+    yaml_a: Optional[dict[str, Any]] = None
+    failed_a: Optional[str] = None
+    yaml_b: Optional[dict[str, Any]] = None
+    failed_b: Optional[str] = None
     try:
-        df_b = read_log_csv(folder_b, raise_on_error=True)
-    except CsvLoadError as e:
-        df_failed_b = os.path.basename(e.path)
+        yaml_a, failed_a = read_yaml_file_with_error(folder_a)
+        yaml_b, failed_b = read_yaml_file_with_error(folder_b)
     except Exception as e:
-        df_failed_b = str(e)
+        logger.exception("YAML データの読み込みに失敗しました")
+        load_failures.append(f"ハイパーパラメータ差分 (YAML): {_short_error(e)}")
 
-    task_options_a = scan_task_options(folder_a, df_a)
-    task_options_b = scan_task_options(folder_b, df_b)
+    # 3. 画像ペア・一覧
+    image_pairs: list[ImagePairItem] = []
+    folder_images_a: list[tuple[str, str, str]] = []
+    folder_images_b: list[tuple[str, str, str]] = []
+    try:
+        image_pairs = detect_image_pairs(folder_a, folder_b)
+        folder_images_a = get_folder_image_list(folder_a)
+        folder_images_b = get_folder_image_list(folder_b)
+    except Exception as e:
+        logger.exception("画像データの読み込みに失敗しました")
+        load_failures.append(f"画像目視比較: {_short_error(e)}")
+
+    # 4. CSV
+    df_a: Optional[pd.DataFrame] = None
+    df_failed_a: Optional[str] = None
+    df_b: Optional[pd.DataFrame] = None
+    df_failed_b: Optional[str] = None
+    task_options_a: list[TaskOption] = []
+    task_options_b: list[TaskOption] = []
+    try:
+        try:
+            df_a = read_log_csv(folder_a, raise_on_error=True)
+        except CsvLoadError as e:
+            df_failed_a = os.path.basename(e.path)
+        except Exception as e:
+            df_failed_a = str(e)
+
+        try:
+            df_b = read_log_csv(folder_b, raise_on_error=True)
+        except CsvLoadError as e:
+            df_failed_b = os.path.basename(e.path)
+        except Exception as e:
+            df_failed_b = str(e)
+
+        task_options_a = scan_task_options(folder_a, df_a)
+        task_options_b = scan_task_options(folder_b, df_b)
+    except Exception as e:
+        logger.exception("CSV データの読み込みに失敗しました")
+        load_failures.append(f"数値ログ比較グラフ (CSV): {_short_error(e)}")
 
     return ComparisonData(
         folder_a=folder_a,
@@ -115,6 +148,7 @@ def _load_comparison_data(
         df_failed_b=df_failed_b,
         task_options_a=task_options_a,
         task_options_b=task_options_b,
+        load_failures=load_failures,
     )
 
 logger = logging.getLogger(__name__)
@@ -373,6 +407,7 @@ class ExperimentCompareApp(QMainWindow):
 
     def _check_auto_load(self) -> None:
         """両方の入力欄に有効なフォルダが存在する場合に自動読み込みを実行"""
+        self._debounce_timer.stop()
         folder_a = self.combo_folder_a.currentText().strip()
         folder_b = self.combo_folder_b.currentText().strip()
 
@@ -394,6 +429,7 @@ class ExperimentCompareApp(QMainWindow):
 
     def load_all(self, *, blocking: bool = False) -> None:
         """フォルダA/Bのデータを各ビュー（YAML差分、画像比較、CSVグラフ）に読み込み（非同期/同期対応）"""
+        self._debounce_timer.stop()
         folder_a = self.combo_folder_a.currentText().strip()
         folder_b = self.combo_folder_b.currentText().strip()
 
@@ -450,7 +486,7 @@ class ExperimentCompareApp(QMainWindow):
         if gen != self._load_generation:
             return
 
-        failures: list[str] = []
+        failures: list[str] = list(data.load_failures)
 
         # 1. YAML差分タブ
         try:
@@ -524,6 +560,8 @@ class ExperimentCompareApp(QMainWindow):
 
         if folder_a and folder_b:
             self._check_auto_load()
+        else:
+            self._debounce_timer.stop()
 
     def closeEvent(self, event) -> None:
         """アプリケーション終了時に現在のフォルダパスを記録"""
