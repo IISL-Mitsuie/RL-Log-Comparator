@@ -209,6 +209,7 @@ class TestMainWindow(unittest.TestCase):
 
         # ヘルプメニュー ショートカット
         self.assertEqual(window.act_spec_guide.shortcut().toString(), "F1")
+        self.assertEqual(window.act_shortcuts.shortcut().toString(), "F2")
 
         # 表示メニューのアクションによるタブ切り替え
         window.act_tab_2.trigger()
@@ -359,6 +360,11 @@ class TestMainWindow(unittest.TestCase):
         with patch.object(window, "_on_manual_check_update") as mock_update:
             window.act_check_update.trigger()
             mock_update.assert_called_once()
+
+        # 5. キーボードショートカット一覧
+        with patch.object(window, "_show_shortcuts_dialog") as mock_shortcuts:
+            window.act_shortcuts.trigger()
+            mock_shortcuts.assert_called_once()
 
 if __name__ == "__main__":
     unittest.main()

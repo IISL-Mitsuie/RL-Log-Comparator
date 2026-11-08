@@ -412,6 +412,11 @@ class ExperimentCompareApp(QMainWindow):
         self.act_spec_guide.triggered.connect(lambda: self.tabs.setCurrentWidget(self.tab_spec))
         self.menu_help.addAction(self.act_spec_guide)
 
+        self.act_shortcuts = QAction("キーボードショートカット一覧…", self)
+        self.act_shortcuts.setShortcut(QKeySequence("F2"))
+        self.act_shortcuts.triggered.connect(self._show_shortcuts_dialog)
+        self.menu_help.addAction(self.act_shortcuts)
+
         self.menu_help.addSeparator()
 
         self.act_check_update = QAction("更新を確認…", self)
@@ -887,6 +892,12 @@ class ExperimentCompareApp(QMainWindow):
         """GitHub リポジトリページをブラウザで開く"""
         repo_url = f"https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}"
         QDesktopServices.openUrl(QUrl(repo_url))
+
+    def _show_shortcuts_dialog(self) -> None:
+        """キーボードショートカット一覧ダイアログを表示"""
+        from src.ui.dialogs.shortcuts_dialog import ShortcutsDialog
+        dialog = ShortcutsDialog(self)
+        dialog.exec()
 
     def _show_about_dialog(self) -> None:
         """バージョン情報ダイアログを表示"""
