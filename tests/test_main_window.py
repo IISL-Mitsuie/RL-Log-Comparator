@@ -223,21 +223,71 @@ class TestMainWindow(unittest.TestCase):
         self.assertEqual(window.tabs.currentIndex(), 0)
 
     def test_swap_folders_action(self):
-        """「A と B を入れ替え」でパスが反転し、重複なく 1 回だけ読み込みが走る (ISSUE-16)"""
+        """「A と B を入れ替え」でパスが反転し、YAML・画像・CSVの各ビューが入れ替わり、読み込みが1回のみ行われる (ISSUE-16)"""
+        from PySide6.QtCore import QThreadPool
+
         window = self._create_isolated_window()
-        window.combo_folder_a.setEditText(self.folder_a)
-        window.combo_folder_b.setEditText(self.folder_b)
-        window._last_loaded_a = self.folder_a
-        window._last_loaded_b = self.folder_b
+        window.load_folders(self.folder_a, self.folder_b, blocking=True)
 
-        with patch.object(window, "load_all") as mock_load:
+        # 読み込み前の初期状態検証
+        self.assertEqual(window.combo_folder_a.currentText(), self.folder_a)
+        self.assertEqual(window.combo_folder_b.currentText(), self.folder_b)
+        self.assertEqual(window.tab_yaml.yaml_a.get("mode"), "S-SAP")
+        self.assertEqual(window.tab_yaml.yaml_b.get("mode"), "Q-SAP")
+        self.assertEqual(window.tab_images.folder_a, self.folder_a)
+        self.assertEqual(window.tab_images.folder_b, self.folder_b)
+        self.assertIn("S-SAP", window.tab_images.box_a.title())
+        self.assertIn("Q-SAP", window.tab_images.box_b.title())
+        self.assertEqual(window.tab_csv.folder_a, self.folder_a)
+        self.assertEqual(window.tab_csv.folder_b, self.folder_b)
+        self.assertIn("S-SAP", window.tab_csv.info_a)
+        self.assertIn("Q-SAP", window.tab_csv.info_b)
+
+        # A と B を入れ替え実行 (スレッド完了まで同期的に待機し、GUIイベントを処理)
+        with patch.object(window, "load_all", wraps=window.load_all) as spy_load:
             window.act_swap.trigger()
+            QThreadPool.globalInstance().waitForDone(5000)
+            self.app.processEvents()
 
+        # 重複なく 1 回だけ読み込みが走ったこと
+        spy_load.assert_called_once()
+        # lineEdit のシグナル遮断によりデバウンスタイマーが起動していないこと
+        self.assertFalse(window._debounce_timer.isActive())
+
+        # コンボボックスのテキストおよび内部追跡パスが入れ替わっていること
         self.assertEqual(window.combo_folder_a.currentText(), self.folder_b)
         self.assertEqual(window.combo_folder_b.currentText(), self.folder_a)
-        self.assertEqual(window._last_loaded_a, "")
-        self.assertEqual(window._last_loaded_b, "")
-        mock_load.assert_called_once()
+        self.assertEqual(window._last_loaded_a, self.folder_b)
+        self.assertEqual(window._last_loaded_b, self.folder_a)
+
+        # 1. YAML 差分の A/B 列が入れ替わっていること
+        self.assertEqual(window.tab_yaml.yaml_a.get("mode"), "Q-SAP")
+        self.assertEqual(window.tab_yaml.yaml_b.get("mode"), "S-SAP")
+        self.assertIn("Q-SAP", window.tab_yaml.info_a)
+        self.assertIn("S-SAP", window.tab_yaml.info_b)
+        mode_item = None
+        for i in range(window.tab_yaml.tree.topLevelItemCount()):
+            item = window.tab_yaml.tree.topLevelItem(i)
+            if item.text(0) == "mode":
+                mode_item = item
+                break
+        self.assertIsNotNone(mode_item)
+        self.assertEqual(mode_item.text(1), "Q-SAP")
+        self.assertEqual(mode_item.text(2), "S-SAP")
+
+        # 2. 画像比較の左右表示が入れ替わっていること
+        self.assertEqual(window.tab_images.folder_a, self.folder_b)
+        self.assertEqual(window.tab_images.folder_b, self.folder_a)
+        self.assertIn("Q-SAP", window.tab_images.box_a.title())
+        self.assertIn("S-SAP", window.tab_images.box_b.title())
+
+        # 3. CSV 比較グラフの凡例およびデータが入れ替わっていること
+        self.assertEqual(window.tab_csv.folder_a, self.folder_b)
+        self.assertEqual(window.tab_csv.folder_b, self.folder_a)
+        self.assertIn("Q-SAP", window.tab_csv.info_a)
+        self.assertIn("S-SAP", window.tab_csv.info_b)
+        self.assertIn("Q-SAP", window.tab_csv.txt_legend_a.placeholderText())
+        self.assertIn("S-SAP", window.tab_csv.txt_legend_b.placeholderText())
 
     def test_about_action_and_version(self):
         """バージョン情報ダイアログに APP_VERSION が含まれることの検証 (ISSUE-16)"""

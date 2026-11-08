@@ -461,16 +461,23 @@ class ExperimentCompareApp(QMainWindow):
         combos = [self.combo_folder_a, self.combo_folder_b]
         for combo in combos:
             current_text = combo.currentText()
+            line_edit = combo.lineEdit()
             combo.blockSignals(True)
-            combo.clear()
-            for path in self._history:
-                combo.addItem(path)
-            if self._history:
-                combo.insertSeparator(combo.count())
-                combo.addItem(CLEAR_HISTORY_TEXT)
-            combo.setCurrentIndex(-1)
-            combo.setEditText(current_text)
-            combo.blockSignals(False)
+            if line_edit:
+                line_edit.blockSignals(True)
+            try:
+                combo.clear()
+                for path in self._history:
+                    combo.addItem(path)
+                if self._history:
+                    combo.insertSeparator(combo.count())
+                    combo.addItem(CLEAR_HISTORY_TEXT)
+                combo.setCurrentIndex(-1)
+                combo.setEditText(current_text)
+            finally:
+                if line_edit:
+                    line_edit.blockSignals(False)
+                combo.blockSignals(False)
 
     def _on_folder_text_changed(self, text: str) -> None:
         """フォルダ入力欄テキスト変更時のデバウンスタイマー起動"""
@@ -538,24 +545,36 @@ class ExperimentCompareApp(QMainWindow):
             self._update_history_combos()
             self._check_auto_load()
 
-    def _swap_folders(self) -> None:
+    def _swap_folders(self, *args, blocking: bool = False, **kwargs) -> None:
         """フォルダ A と B の入力パスを入れ替えて再読み込み"""
         self._debounce_timer.stop()
         path_a = self.combo_folder_a.currentText().strip()
         path_b = self.combo_folder_b.currentText().strip()
 
+        line_a = self.combo_folder_a.lineEdit()
+        line_b = self.combo_folder_b.lineEdit()
+
         self.combo_folder_a.blockSignals(True)
         self.combo_folder_b.blockSignals(True)
+        if line_a:
+            line_a.blockSignals(True)
+        if line_b:
+            line_b.blockSignals(True)
+
         try:
             self.combo_folder_a.setEditText(path_b)
             self.combo_folder_b.setEditText(path_a)
         finally:
+            if line_a:
+                line_a.blockSignals(False)
+            if line_b:
+                line_b.blockSignals(False)
             self.combo_folder_a.blockSignals(False)
             self.combo_folder_b.blockSignals(False)
 
         self._last_loaded_a = ""
         self._last_loaded_b = ""
-        self.load_all()
+        self.load_all(blocking=blocking)
 
     def _check_auto_load(self) -> None:
         """両方の入力欄に有効なフォルダが存在する場合に自動読み込みを実行"""
@@ -571,12 +590,27 @@ class ExperimentCompareApp(QMainWindow):
     def load_folders(self, path_a: str, path_b: str, *, blocking: bool = True) -> None:
         """フォルダA/Bを指定して読み込み（CLI起動・テスト用。履歴には追加しない）"""
         self._debounce_timer.stop()
+        line_a = self.combo_folder_a.lineEdit()
+        line_b = self.combo_folder_b.lineEdit()
+
         self.combo_folder_a.blockSignals(True)
         self.combo_folder_b.blockSignals(True)
-        self.combo_folder_a.setEditText(path_a)
-        self.combo_folder_b.setEditText(path_b)
-        self.combo_folder_a.blockSignals(False)
-        self.combo_folder_b.blockSignals(False)
+        if line_a:
+            line_a.blockSignals(True)
+        if line_b:
+            line_b.blockSignals(True)
+
+        try:
+            self.combo_folder_a.setEditText(path_a)
+            self.combo_folder_b.setEditText(path_b)
+        finally:
+            if line_a:
+                line_a.blockSignals(False)
+            if line_b:
+                line_b.blockSignals(False)
+            self.combo_folder_a.blockSignals(False)
+            self.combo_folder_b.blockSignals(False)
+
         self.load_all(blocking=blocking)
 
     def load_all(self, *, blocking: bool = False) -> None:
