@@ -6,11 +6,12 @@
 
 import logging
 import os
+from dataclasses import dataclass, field
 from typing import Optional
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QSplitter, QGroupBox,
     QListWidget, QListWidgetItem, QSlider, QLabel, QCheckBox, QComboBox,
-    QLineEdit, QPushButton, QSpinBox
+    QLineEdit, QPushButton, QSpinBox, QDoubleSpinBox, QFileDialog, QMessageBox
 )
 from PySide6.QtCore import Qt, QTimer
 import pandas as pd
@@ -27,6 +28,8 @@ mpl.rcParams['savefig.dpi'] = 300
 from src.config import (
     SETTINGS_KEY_CHART_FONT_LABEL, SETTINGS_KEY_CHART_FONT_TICKS,
     SETTINGS_KEY_CHART_FONT_TITLE, SETTINGS_KEY_CHART_FONT_LEGEND,
+    SETTINGS_KEY_CHART_SMOOTHING, SETTINGS_KEY_CHART_MA_WINDOW,
+    SETTINGS_KEY_CHART_EMA_WEIGHT, SETTINGS_KEY_CHART_LOG_SCALE,
     DEFAULT_CHART_FONT_LABEL, DEFAULT_CHART_FONT_TICKS,
     DEFAULT_CHART_FONT_TITLE, DEFAULT_CHART_FONT_LEGEND
 )
@@ -34,11 +37,38 @@ from src.core.settings import create_settings
 from src.core.parsers.experiment import get_experiment_info
 from src.core.parsers.csv_metric import (
     read_log_csv, compute_metric_series, get_available_metrics, TaskOption,
-    scan_task_options, load_task_dataframe, EPISODE_X_LABEL, CsvLoadError
+    scan_task_options, load_task_dataframe, EPISODE_X_LABEL, CsvLoadError,
+    MetricSeriesData
 )
-from src.ui.theme import current_theme, get_theme_manager
+from src.ui.dialogs.figure_export_dialog import FigureExportDialog
+from src.ui.theme import Theme, current_theme, get_theme_manager
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ChartSpec:
+    """グラフ描画仕様・パラメータ"""
+    data_a: MetricSeriesData
+    data_b: MetricSeriesData
+    chart_title: str
+    x_label: str
+    y_label: str
+    legend_label_a: str
+    legend_label_b: str
+    show_raw: bool
+    show_boundaries: bool
+    show_convergence: bool
+    is_log_scale: bool
+    font_label: int
+    font_ticks: int
+    font_title: int
+    font_legend: int
+    theme: Theme
+    show_legend: bool = True
+    show_grid: bool = True
+    x_axis_mismatch: bool = False
+    load_error_msgs: dict[str, str] = field(default_factory=dict)
 
 
 def _drop_nan(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -47,6 +77,132 @@ def _drop_nan(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     y = np.asarray(y, dtype=float)
     mask = ~np.isnan(y)
     return x[mask], y[mask]
+
+
+def _render_chart(ax, spec: ChartSpec) -> bool:
+    """
+    与えられた Axes に spec の指定に従ってグラフを描画する。
+    画面描画 (FigureCanvasQTAgg) と論文用エクスポート (FigureCanvasAgg) の共通描画関数。
+    戻り値: 何かプロットされたか (has_plot)
+    """
+    has_plot = False
+
+    # A系列のプロット
+    if spec.data_a.has_data and spec.data_a.x is not None:
+        if spec.show_raw and spec.data_a.y_raw is not None:
+            ax.plot(*_drop_nan(spec.data_a.x, spec.data_a.y_raw), color=spec.theme.series_a_raw, alpha=0.25, linewidth=1.0)
+        if spec.data_a.y_ma is not None:
+            ax.plot(*_drop_nan(spec.data_a.x, spec.data_a.y_ma), label=spec.legend_label_a, color=spec.theme.series_a_line, linewidth=2.0)
+            has_plot = True
+
+        # Aの収束ポイント描画 (★マーカー)
+        if spec.show_convergence and spec.data_a.converged_episodes:
+            label_star_a = f"{spec.legend_label_a} 収束点 (★)" if spec.legend_label_a else "A 収束点 (★)"
+            ax.scatter(
+                spec.data_a.converged_episodes, spec.data_a.converged_y_values,
+                marker='*', s=140, color=spec.theme.series_a_marker, edgecolors=spec.theme.chart_bg, linewidths=1.0,
+                zorder=5, label=label_star_a
+            )
+
+    # B系列のプロット
+    if spec.data_b.has_data and spec.data_b.x is not None:
+        if spec.show_raw and spec.data_b.y_raw is not None:
+            ax.plot(*_drop_nan(spec.data_b.x, spec.data_b.y_raw), color=spec.theme.series_b_raw, alpha=0.25, linewidth=1.0)
+        if spec.data_b.y_ma is not None:
+            ax.plot(*_drop_nan(spec.data_b.x, spec.data_b.y_ma), label=spec.legend_label_b, color=spec.theme.series_b_line, linewidth=2.0)
+            has_plot = True
+
+        # Bの収束ポイント描画 (★マーカー)
+        if spec.show_convergence and spec.data_b.converged_episodes:
+            label_star_b = f"{spec.legend_label_b} 収束点 (★)" if spec.legend_label_b else "B 収束点 (★)"
+            ax.scatter(
+                spec.data_b.converged_episodes, spec.data_b.converged_y_values,
+                marker='*', s=140, color=spec.theme.series_b_marker, edgecolors=spec.theme.chart_bg, linewidths=1.0,
+                zorder=5, label=label_star_b
+            )
+
+    # 片側のみデータが存在する場合の凡例
+    if spec.data_a.has_data and not spec.data_b.has_data:
+        ax.plot([], [], ' ', label=spec.load_error_msgs.get("B", "B: [該当列なし]"))
+    elif not spec.data_a.has_data and spec.data_b.has_data:
+        ax.plot([], [], ' ', label=spec.load_error_msgs.get("A", "A: [該当列なし]"))
+
+    # タスク境界線の描画 (縦破線)
+    if spec.show_boundaries:
+        boundaries = spec.data_a.task_boundaries if spec.data_a.task_boundaries else spec.data_b.task_boundaries
+        for ep_b, label_b in boundaries:
+            ax.axvline(x=ep_b, color=spec.theme.boundary_line, linestyle="--", alpha=0.7, linewidth=1.2)
+            ax.text(
+                ep_b + 1, 0.98, f" {label_b}",
+                transform=ax.get_xaxis_transform(),
+                color=spec.theme.boundary_text, fontsize=max(6, spec.font_ticks - 1), fontweight='bold',
+                verticalalignment='top', alpha=0.9
+            )
+
+    # Y 軸対数表示の処理
+    y_label_str = spec.y_label
+    if spec.is_log_scale and has_plot:
+        all_y_vals = []
+        for d in (spec.data_a, spec.data_b):
+            if d.has_data:
+                if d.y_ma is not None:
+                    valid = d.y_ma[~np.isnan(d.y_ma)]
+                    if len(valid) > 0:
+                        all_y_vals.append(valid)
+                if spec.show_raw and d.y_raw is not None:
+                    valid = d.y_raw[~np.isnan(d.y_raw)]
+                    if len(valid) > 0:
+                        all_y_vals.append(valid)
+        if all_y_vals:
+            merged_y = np.concatenate(all_y_vals)
+            has_non_pos = np.any(merged_y <= 0)
+            pos_vals = merged_y[merged_y > 0]
+            if has_non_pos:
+                linthresh = float(np.min(pos_vals)) if len(pos_vals) > 0 else 1.0
+                ax.set_yscale('symlog', linthresh=linthresh)
+                if not y_label_str.endswith("(symlog)"):
+                    y_label_str = f"{y_label_str} (symlog)" if y_label_str else "(symlog)"
+            else:
+                ax.set_yscale('log')
+        else:
+            ax.set_yscale('log')
+
+    ax.set_xlabel(spec.x_label, fontsize=spec.font_label, color=spec.theme.chart_text, labelpad=6)
+    ax.set_ylabel(y_label_str, fontsize=spec.font_label, color=spec.theme.chart_text, labelpad=6)
+    ax.set_title(spec.chart_title, fontsize=spec.font_title, fontweight='bold', color=spec.theme.chart_text, pad=10)
+    if spec.show_grid:
+        ax.grid(True, linestyle="--", alpha=0.6, color=spec.theme.chart_grid)
+    else:
+        ax.grid(False)
+    ax.tick_params(colors=spec.theme.chart_text, labelsize=spec.font_ticks)
+    for spine in ax.spines.values():
+        spine.set_color(spec.theme.chart_spine)
+
+    if has_plot and spec.show_legend:
+        legend = ax.legend(loc="best", framealpha=0.9, facecolor=spec.theme.chart_legend_bg, edgecolor=spec.theme.chart_legend_edge, fontsize=spec.font_legend)
+        if legend:
+            for text in legend.get_texts():
+                text.set_color(spec.theme.chart_text)
+        if spec.x_axis_mismatch:
+            ax.text(0.99, 0.01, "※ X 軸の単位が A/B で異なります",
+                    horizontalalignment='right', verticalalignment='bottom',
+                    transform=ax.transAxes, fontsize=max(6, spec.font_legend - 1), color=spec.theme.warning)
+
+    # 描画できる系列がない場合
+    if not has_plot and spec.load_error_msgs:
+        center_lines = [spec.load_error_msgs[side] for side in sorted(spec.load_error_msgs)]
+        for side, has_d in (("A", spec.data_a.has_data), ("B", spec.data_b.has_data)):
+            if side not in spec.load_error_msgs and not has_d:
+                center_lines.append(f"{side}: [該当列なし]")
+        ax.text(0.5, 0.5, "\n".join(center_lines),
+                horizontalalignment='center', verticalalignment='center',
+                transform=ax.transAxes, fontsize=max(10, spec.font_title), color=spec.theme.error)
+    elif not has_plot:
+        ax.text(0.5, 0.5, "比較対象の CSV データが存在しません",
+                horizontalalignment='center', verticalalignment='center',
+                transform=ax.transAxes, fontsize=max(10, spec.font_title), color=spec.theme.text_muted)
+
+    return has_plot
 
 
 class CsvCompareWidget(QWidget):
@@ -129,18 +285,89 @@ class CsvCompareWidget(QWidget):
         self.list_metrics.currentRowChanged.connect(self._on_metric_changed)
         left_lay.addWidget(self.list_metrics)
 
-        # 3. 移動平均設定
-        left_lay.addWidget(QLabel("移動平均ウィンドウ:"))
+        # 3. 平滑化設定
+        smooth_box = QGroupBox("平滑化設定")
+        smooth_lay = QVBoxLayout(smooth_box)
+        smooth_lay.setSpacing(6)
+
+        lay_sm_type = QHBoxLayout()
+        lay_sm_type.addWidget(QLabel("平滑化方式:"))
+        self.combo_smoothing = QComboBox()
+        self.combo_smoothing.addItem("移動平均", "ma")
+        self.combo_smoothing.addItem("EMA (TensorBoard方式)", "ema")
+        self.combo_smoothing.addItem("なし", "none")
+        self.combo_smoothing.currentIndexChanged.connect(self._on_smoothing_type_changed)
+        lay_sm_type.addWidget(self.combo_smoothing, 1)
+        smooth_lay.addLayout(lay_sm_type)
+
+        # 移動平均用UI (スライダー + QSpinBox 連動)
+        self.container_ma = QWidget()
+        lay_ma_container = QVBoxLayout(self.container_ma)
+        lay_ma_container.setContentsMargins(0, 0, 0, 0)
+        lay_ma_container.setSpacing(4)
+
+        lay_ma_row = QHBoxLayout()
+        lbl_ma = QLabel("窓幅:")
+        lbl_ma.setFixedWidth(40)
+        lay_ma_row.addWidget(lbl_ma)
+
         self.slider_ma = QSlider(Qt.Orientation.Horizontal)
         self.slider_ma.setRange(1, 50)
         self.slider_ma.setValue(10)
         self.slider_ma.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.slider_ma.setTickInterval(5)
-        self.slider_ma.valueChanged.connect(self._on_ma_changed)
-        left_lay.addWidget(self.slider_ma)
+        lay_ma_row.addWidget(self.slider_ma, 1)
+
+        self.spin_ma = QSpinBox()
+        self.spin_ma.setRange(1, 50)
+        self.spin_ma.setValue(10)
+        self.spin_ma.setSuffix(" ep")
+        self.spin_ma.setFixedWidth(75)
+        lay_ma_row.addWidget(self.spin_ma)
+        lay_ma_container.addLayout(lay_ma_row)
 
         self.lbl_ma_val = QLabel("10 ep")
-        left_lay.addWidget(self.lbl_ma_val)
+        self.lbl_ma_val.setVisible(False)
+
+        self.slider_ma.valueChanged.connect(self._on_slider_ma_changed)
+        self.spin_ma.valueChanged.connect(self._on_spin_ma_changed)
+
+        smooth_lay.addWidget(self.container_ma)
+
+        # EMA用UI (スライダー + QDoubleSpinBox 連動)
+        self.container_ema = QWidget()
+        lay_ema_container = QVBoxLayout(self.container_ema)
+        lay_ema_container.setContentsMargins(0, 0, 0, 0)
+        lay_ema_container.setSpacing(4)
+
+        lay_ema_row = QHBoxLayout()
+        lbl_ema = QLabel("係数:")
+        lbl_ema.setFixedWidth(40)
+        lay_ema_row.addWidget(lbl_ema)
+
+        self.slider_ema = QSlider(Qt.Orientation.Horizontal)
+        self.slider_ema.setRange(0, 999)
+        self.slider_ema.setValue(600)
+        self.slider_ema.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.slider_ema.setTickInterval(100)
+        lay_ema_row.addWidget(self.slider_ema, 1)
+
+        self.spin_ema = QDoubleSpinBox()
+        self.spin_ema.setRange(0.000, 0.999)
+        self.spin_ema.setSingleStep(0.05)
+        self.spin_ema.setDecimals(3)
+        self.spin_ema.setValue(0.600)
+        self.spin_ema.setFixedWidth(75)
+        lay_ema_row.addWidget(self.spin_ema)
+        lay_ema_container.addLayout(lay_ema_row)
+
+        self.slider_ema.valueChanged.connect(self._on_slider_ema_changed)
+        self.spin_ema.valueChanged.connect(self._on_spin_ema_changed)
+
+        smooth_lay.addWidget(self.container_ema)
+        self.container_ema.setVisible(False)
+
+        left_lay.addWidget(smooth_box)
 
         # 4. グラフテキスト・フォント設定 (タイトル・軸・凡例・文字サイズ)
         text_box = QGroupBox("グラフテキスト・フォント設定")
@@ -255,7 +482,7 @@ class CsvCompareWidget(QWidget):
 
         left_lay.addWidget(text_box)
 
-        # 5. オプション（生データ、境界線、収束マーカー）
+        # 5. オプション（生データ、境界線、収束マーカー、対数軸）
         self.cb_raw_data = QCheckBox("生データを背景表示")
         self.cb_raw_data.setChecked(True)
         self.cb_raw_data.toggled.connect(self.update_chart)
@@ -271,12 +498,18 @@ class CsvCompareWidget(QWidget):
         self.cb_converged_points.toggled.connect(self.update_chart)
         left_lay.addWidget(self.cb_converged_points)
 
+        self.cb_log_scale = QCheckBox("Y 軸を対数表示")
+        self.cb_log_scale.setToolTip("Y 軸を対数スケールで表示します（0以下の値を含む場合は symlog スケール）")
+        self.cb_log_scale.toggled.connect(self._on_log_scale_toggled)
+        left_lay.addWidget(self.cb_log_scale)
+
         self.main_splitter.addWidget(left_box)
 
         # 右側: Matplotlib グラフ描画領域
         right_widget = QWidget()
         right_lay = QVBoxLayout(right_widget)
 
+        top_bar_lay = QHBoxLayout()
         self.figure = Figure(figsize=(8, 5), dpi=100, facecolor=current_theme().chart_bg)
         self.canvas = FigureCanvasQTAgg(self.figure)
         orig_draw_idle = self.canvas._draw_idle
@@ -288,7 +521,20 @@ class CsvCompareWidget(QWidget):
         self.canvas._draw_idle = _safe_draw_idle
         self.toolbar = NavigationToolbar2QT(self.canvas, self)
 
-        right_lay.addWidget(self.toolbar)
+        top_bar_lay.addWidget(self.toolbar)
+        top_bar_lay.addStretch()
+
+        self.btn_export_csv = QPushButton("📋 表示データを CSV に保存…")
+        self.btn_export_csv.setToolTip("現在プロットされているデータ（生データおよび平滑化データ）を CSV ファイルに書き出します")
+        self.btn_export_csv.clicked.connect(self._export_chart_data_csv)
+        top_bar_lay.addWidget(self.btn_export_csv)
+
+        self.btn_export_paper = QPushButton("📄 論文用に書き出し…")
+        self.btn_export_paper.setToolTip("論文の段組みやスライドに応じたサイズ・解像度・形式で図を保存します")
+        self.btn_export_paper.clicked.connect(self._open_figure_export_dialog)
+        top_bar_lay.addWidget(self.btn_export_paper)
+
+        right_lay.addLayout(top_bar_lay)
         right_lay.addWidget(self.canvas, 1)
 
         self.main_splitter.addWidget(right_widget)
@@ -297,15 +543,64 @@ class CsvCompareWidget(QWidget):
         main_layout.addWidget(self.main_splitter)
 
         self.list_metrics.setCurrentRow(0)
-        self._load_chart_font_settings()
+        self._load_chart_settings()
 
     def _schedule_redraw(self) -> None:
         """タイマーによるデバウンス再描画をスケジュール（100ms 後に update_chart を実行）"""
         self._redraw_timer.start(100)
 
-    def _on_ma_changed(self, val: int) -> None:
+    def _on_slider_ma_changed(self, val: int) -> None:
+        if self.spin_ma.value() != val:
+            self.spin_ma.blockSignals(True)
+            self.spin_ma.setValue(val)
+            self.spin_ma.blockSignals(False)
         self.lbl_ma_val.setText(f"{val} ep")
+        self._save_smoothing_settings()
         self._schedule_redraw()
+
+    def _on_spin_ma_changed(self, val: int) -> None:
+        if self.slider_ma.value() != val:
+            self.slider_ma.blockSignals(True)
+            self.slider_ma.setValue(val)
+            self.slider_ma.blockSignals(False)
+        self.lbl_ma_val.setText(f"{val} ep")
+        self._save_smoothing_settings()
+        self._schedule_redraw()
+
+    def _on_slider_ema_changed(self, val: int) -> None:
+        val_float = val / 1000.0
+        if abs(self.spin_ema.value() - val_float) > 1e-4:
+            self.spin_ema.blockSignals(True)
+            self.spin_ema.setValue(val_float)
+            self.spin_ema.blockSignals(False)
+        self._save_smoothing_settings()
+        self._schedule_redraw()
+
+    def _on_spin_ema_changed(self, val: float) -> None:
+        val_int = int(round(val * 1000.0))
+        if self.slider_ema.value() != val_int:
+            self.slider_ema.blockSignals(True)
+            self.slider_ema.setValue(val_int)
+            self.slider_ema.blockSignals(False)
+        self._save_smoothing_settings()
+        self._schedule_redraw()
+
+    def _on_smoothing_type_changed(self, idx: int) -> None:
+        mode = self.combo_smoothing.currentData() or "ma"
+        self.container_ma.setVisible(mode == "ma")
+        self.container_ema.setVisible(mode == "ema")
+        self._save_smoothing_settings()
+        self._need_reset_texts = True
+        self.update_chart()
+
+    def _on_log_scale_toggled(self, checked: bool) -> None:
+        settings = create_settings()
+        settings.setValue(SETTINGS_KEY_CHART_LOG_SCALE, checked)
+        self.update_chart()
+
+    def _on_ma_changed(self, val: int) -> None:
+        """後方互換用"""
+        self._on_slider_ma_changed(val)
 
     def _on_custom_text_changed(self, text: str) -> None:
         """テキスト入力変更時のリアルタイム再描画"""
@@ -319,6 +614,71 @@ class CsvCompareWidget(QWidget):
         """フォントサイズ変更時のリアルタイム再描画および設定保存"""
         self._save_chart_font_settings()
         self.update_chart()
+
+    def _load_chart_settings(self) -> None:
+        """QSettings から平滑化・対数軸・フォントサイズ設定を一括読み込み"""
+        self._load_chart_font_settings()
+        settings = create_settings()
+
+        smoothing = str(settings.value(SETTINGS_KEY_CHART_SMOOTHING, "ma"))
+        idx = self.combo_smoothing.findData(smoothing)
+        if idx >= 0:
+            self.combo_smoothing.blockSignals(True)
+            self.combo_smoothing.setCurrentIndex(idx)
+            self.combo_smoothing.blockSignals(False)
+
+        try:
+            ma_window = int(settings.value(SETTINGS_KEY_CHART_MA_WINDOW, 10))
+        except (ValueError, TypeError):
+            ma_window = 10
+        upper = min(5000, max(self.slider_ma.maximum(), ma_window))
+        self.slider_ma.setMaximum(upper)
+        self.spin_ma.setMaximum(upper)
+        self.slider_ma.blockSignals(True)
+        self.slider_ma.setValue(ma_window)
+        self.slider_ma.blockSignals(False)
+        self.spin_ma.blockSignals(True)
+        self.spin_ma.setValue(ma_window)
+        self.spin_ma.blockSignals(False)
+        self.lbl_ma_val.setText(f"{ma_window} ep")
+
+        try:
+            ema_weight = float(settings.value(SETTINGS_KEY_CHART_EMA_WEIGHT, 0.6))
+        except (ValueError, TypeError):
+            ema_weight = 0.6
+        self.spin_ema.blockSignals(True)
+        self.spin_ema.setValue(ema_weight)
+        self.spin_ema.blockSignals(False)
+        self.slider_ema.blockSignals(True)
+        self.slider_ema.setValue(int(round(ema_weight * 1000.0)))
+        self.slider_ema.blockSignals(False)
+
+        mode = self.combo_smoothing.currentData() or "ma"
+        self.container_ma.setVisible(mode == "ma")
+        self.container_ema.setVisible(mode == "ema")
+
+        log_scale = settings.value(SETTINGS_KEY_CHART_LOG_SCALE, False, type=bool)
+        self.cb_log_scale.blockSignals(True)
+        self.cb_log_scale.setChecked(bool(log_scale))
+        self.cb_log_scale.blockSignals(False)
+
+    def _save_smoothing_settings(self) -> None:
+        """平滑化設定を QSettings に保存"""
+        settings = create_settings()
+        settings.setValue(SETTINGS_KEY_CHART_SMOOTHING, self.combo_smoothing.currentData())
+        settings.setValue(SETTINGS_KEY_CHART_MA_WINDOW, self.spin_ma.value())
+        settings.setValue(SETTINGS_KEY_CHART_EMA_WEIGHT, self.spin_ema.value())
+
+    def _update_ma_window_range(self) -> None:
+        """データ長に応じて移動平均窓幅の最大値を更新 (範囲 1〜max(50, データ長の半分)、上限 5000)"""
+        max_len = 0
+        if self.df_a is not None and len(self.df_a) > 0:
+            max_len = max(max_len, len(self.df_a))
+        if self.df_b is not None and len(self.df_b) > 0:
+            max_len = max(max_len, len(self.df_b))
+        upper = min(5000, max(50, max_len // 2))
+        self.slider_ma.setMaximum(upper)
+        self.spin_ma.setMaximum(upper)
 
     def _load_chart_font_settings(self) -> None:
         """QSettings からフォントサイズ設定を読み込み"""
@@ -487,6 +847,7 @@ class CsvCompareWidget(QWidget):
         # 指標一覧およびタスク一覧の統合更新
         self._update_metrics_list()
         self._populate_task_combos()
+        self._update_ma_window_range()
         self.update_chart()
 
     def load_csvs(self, folder_a: str, folder_b: str) -> None:
@@ -636,7 +997,9 @@ class CsvCompareWidget(QWidget):
         if metric_key is None:
             return
 
-        window = self.slider_ma.value()
+        smoothing = self.combo_smoothing.currentData() or "ma"
+        window = self.spin_ma.value()
+        ema_weight = self.spin_ema.value()
         show_raw = self.cb_raw_data.isChecked()
         is_independent = self.cb_independent_tasks.isChecked()
         title_metric_name = item.text() if item else ""
@@ -663,8 +1026,14 @@ class CsvCompareWidget(QWidget):
             task_filter_id_a = opt_a.task_id if opt_a and opt_a.task_id > 0 else 0
             task_filter_id_b = opt_b.task_id if opt_b and opt_b.task_id > 0 else 0
 
-            data_a = compute_metric_series(task_df_a, metric_key, window, label_a, task_filter_id=task_filter_id_a)
-            data_b = compute_metric_series(task_df_b, metric_key, window, label_b, task_filter_id=task_filter_id_b)
+            data_a = compute_metric_series(
+                task_df_a, metric_key, window, label_a, task_filter_id=task_filter_id_a,
+                smoothing=smoothing, ema_weight=ema_weight
+            )
+            data_b = compute_metric_series(
+                task_df_b, metric_key, window, label_b, task_filter_id=task_filter_id_b,
+                smoothing=smoothing, ema_weight=ema_weight
+            )
 
             show_boundaries = False  # 個別タスク比較では全体境界線は描画しない
             show_convergence = self.cb_converged_points.isChecked()
@@ -692,8 +1061,14 @@ class CsvCompareWidget(QWidget):
             show_boundaries = self.cb_task_boundaries.isChecked() and (task_id == 0)
             show_convergence = self.cb_converged_points.isChecked() and (task_id == 0)
 
-            data_a = compute_metric_series(self.df_a, metric_key, window, f"A: {self.info_a}", task_filter_id=task_id)
-            data_b = compute_metric_series(self.df_b, metric_key, window, f"B: {self.info_b}", task_filter_id=task_id)
+            data_a = compute_metric_series(
+                self.df_a, metric_key, window, f"A: {self.info_a}", task_filter_id=task_id,
+                smoothing=smoothing, ema_weight=ema_weight
+            )
+            data_b = compute_metric_series(
+                self.df_b, metric_key, window, f"B: {self.info_b}", task_filter_id=task_id,
+                smoothing=smoothing, ema_weight=ema_weight
+            )
 
             if task_id > 0:
                 default_x_label = f"Task Episode (Task {task_id} 内エピソード [1..N])"
@@ -716,8 +1091,6 @@ class CsvCompareWidget(QWidget):
         default_y_label = data_a.y_label or data_b.y_label or "Value"
 
         # リセットフラグが立っている場合（指標・タスク変更、フォルダロード、リセットボタン押下時）
-        # 質問1: 案A（入力欄にデフォルト値が常時表示され、消すと空欄化）
-        # 質問2: 案B（指標やタスクを変更したときは、すべてデフォルトに自動リセット）
         if getattr(self, '_need_reset_texts', False):
             if hasattr(self, 'txt_title'):
                 self.txt_title.blockSignals(True)
@@ -764,53 +1137,11 @@ class CsvCompareWidget(QWidget):
         legend_label_a = custom_a if custom_a else data_a.legend_label_ma
         legend_label_b = custom_b if custom_b else data_b.legend_label_ma
 
-        has_plot = False
-
-        # A系列のプロット (青系統)
-        if data_a.has_data and data_a.x is not None:
-            if show_raw and data_a.y_raw is not None:
-                ax.plot(*_drop_nan(data_a.x, data_a.y_raw), color=theme.series_a_raw, alpha=0.25, linewidth=1.0)
-            if data_a.y_ma is not None:
-                ax.plot(*_drop_nan(data_a.x, data_a.y_ma), label=legend_label_a, color=theme.series_a_line, linewidth=2.0)
-                has_plot = True
-
-            # Aの収束ポイント描画 (★マーカー)
-            if show_convergence and data_a.converged_episodes:
-                label_star_a = f"{custom_a} 収束点 (★)" if custom_a else "A 収束点 (★)"
-                ax.scatter(
-                    data_a.converged_episodes, data_a.converged_y_values,
-                    marker='*', s=140, color=theme.series_a_marker, edgecolors=theme.chart_bg, linewidths=1.0,
-                    zorder=5, label=label_star_a
-                )
-
-        # B系列のプロット (赤系統)
-        if data_b.has_data and data_b.x is not None:
-            if show_raw and data_b.y_raw is not None:
-                ax.plot(*_drop_nan(data_b.x, data_b.y_raw), color=theme.series_b_raw, alpha=0.25, linewidth=1.0)
-            if data_b.y_ma is not None:
-                ax.plot(*_drop_nan(data_b.x, data_b.y_ma), label=legend_label_b, color=theme.series_b_line, linewidth=2.0)
-                has_plot = True
-
-            # Bの収束ポイント描画 (★マーカー)
-            if show_convergence and data_b.converged_episodes:
-                label_star_b = f"{custom_b} 収束点 (★)" if custom_b else "B 収束点 (★)"
-                ax.scatter(
-                    data_b.converged_episodes, data_b.converged_y_values,
-                    marker='*', s=140, color=theme.series_b_marker, edgecolors=theme.chart_bg, linewidths=1.0,
-                    zorder=5, label=label_star_b
-                )
-
         # CSV の読み込みに失敗した場合は「データなし」と区別して表示する
         load_error_msgs = {
             side: f"フォルダ {side} の CSV の読み込みに失敗しました: {name}（詳細はログを参照）"
             for side, name in self._csv_load_errors.items()
         }
-
-        # 片側のみデータが存在する場合の案内（読み込みに失敗した側は、その旨を凡例に示す）
-        if data_a.has_data and not data_b.has_data:
-            ax.plot([], [], ' ', label=load_error_msgs.get("B", "B: [該当列なし]"))
-        elif not data_a.has_data and data_b.has_data:
-            ax.plot([], [], ' ', label=load_error_msgs.get("A", "A: [該当列なし]"))
 
         # フォントサイズ設定の取得
         font_label = self.spin_font_label.value() if hasattr(self, 'spin_font_label') else DEFAULT_CHART_FONT_LABEL
@@ -818,50 +1149,31 @@ class CsvCompareWidget(QWidget):
         font_title = self.spin_font_title.value() if hasattr(self, 'spin_font_title') else DEFAULT_CHART_FONT_TITLE
         font_legend = self.spin_font_legend.value() if hasattr(self, 'spin_font_legend') else DEFAULT_CHART_FONT_LEGEND
 
-        # タスク境界線の描画 (縦破線: 通常モードの全タスク統合時のみ)
-        if show_boundaries:
-            boundaries = data_a.task_boundaries if data_a.task_boundaries else data_b.task_boundaries
-            for ep_b, label_b in boundaries:
-                ax.axvline(x=ep_b, color=theme.boundary_line, linestyle="--", alpha=0.7, linewidth=1.2)
-                ax.text(
-                    ep_b + 1, 0.98, f" {label_b}",
-                    transform=ax.get_xaxis_transform(),
-                    color=theme.boundary_text, fontsize=max(6, font_ticks - 1), fontweight='bold',
-                    verticalalignment='top', alpha=0.9
-                )
+        spec = ChartSpec(
+            data_a=data_a,
+            data_b=data_b,
+            chart_title=chart_title,
+            x_label=x_label,
+            y_label=y_label,
+            legend_label_a=legend_label_a,
+            legend_label_b=legend_label_b,
+            show_raw=show_raw,
+            show_boundaries=show_boundaries,
+            show_convergence=show_convergence,
+            is_log_scale=self.cb_log_scale.isChecked(),
+            font_label=font_label,
+            font_ticks=font_ticks,
+            font_title=font_title,
+            font_legend=font_legend,
+            theme=theme,
+            show_legend=True,
+            show_grid=True,
+            x_axis_mismatch=x_axis_mismatch,
+            load_error_msgs=load_error_msgs,
+        )
+        self._current_spec = spec
 
-        ax.set_xlabel(x_label, fontsize=font_label, color=theme.chart_text, labelpad=6)
-        ax.set_ylabel(y_label, fontsize=font_label, color=theme.chart_text, labelpad=6)
-        ax.set_title(chart_title, fontsize=font_title, fontweight='bold', color=theme.chart_text, pad=10)
-        ax.grid(True, linestyle="--", alpha=0.6, color=theme.chart_grid)
-        ax.tick_params(colors=theme.chart_text, labelsize=font_ticks)
-        for spine in ax.spines.values():
-            spine.set_color(theme.chart_spine)
-
-        if has_plot:
-            legend = ax.legend(loc="best", framealpha=0.9, facecolor=theme.chart_legend_bg, edgecolor=theme.chart_legend_edge, fontsize=font_legend)
-            for text in legend.get_texts():
-                text.set_color(theme.chart_text)
-            if x_axis_mismatch:
-                ax.text(0.99, 0.01, "※ X 軸の単位が A/B で異なります",
-                        horizontalalignment='right', verticalalignment='bottom',
-                        transform=ax.transAxes, fontsize=max(6, font_legend - 1), color=theme.warning)
-
-        # 描画できる系列がない場合は、読み込みの失敗を中央に表示する（片側だけの失敗は凡例に示す）
-        if not has_plot and load_error_msgs:
-            center_lines = [load_error_msgs[side] for side in sorted(load_error_msgs)]
-            # 読み込めた側に、選択した指標のデータがないことも併せて示す
-            for side, df in (("A", self.df_a), ("B", self.df_b)):
-                if side not in load_error_msgs and df is not None:
-                    center_lines.append(f"{side}: [該当列なし]")
-            ax.text(0.5, 0.5, "\n".join(center_lines),
-                    horizontalalignment='center', verticalalignment='center',
-                    transform=ax.transAxes, fontsize=max(10, font_title), color=theme.error)
-        elif not has_plot:
-            ax.text(0.5, 0.5, "比較対象の CSV データが存在しません",
-                    horizontalalignment='center', verticalalignment='center',
-                    transform=ax.transAxes, fontsize=max(10, font_title), color=theme.text_muted)
-
+        _render_chart(ax, spec)
 
         try:
             self.figure.tight_layout(pad=1.2)
@@ -869,3 +1181,82 @@ class CsvCompareWidget(QWidget):
             logger.debug("グラフのレイアウト調整に失敗しました", exc_info=True)
 
         self.canvas.draw_idle()
+
+    def _export_chart_data_csv(self) -> None:
+        """表示中のデータを CSV に保存"""
+        if not hasattr(self, '_current_spec') or self._current_spec is None:
+            QMessageBox.warning(self, "警告", "保存対象のグラフデータがありません。")
+            return
+
+        spec = self._current_spec
+        if not (spec.data_a.has_data or spec.data_b.has_data):
+            QMessageBox.warning(self, "警告", "保存対象のデータがありません。")
+            return
+
+        filepath, _ = QFileDialog.getSaveFileName(
+            self, "表示データを CSV に保存", "chart_data.csv", "CSV ファイル (*.csv)"
+        )
+        if not filepath:
+            return
+
+        try:
+            self._write_chart_data_to_csv(filepath, spec)
+            QMessageBox.information(self, "完了", f"データを CSV に保存しました:\n{os.path.basename(filepath)}")
+        except Exception as e:
+            logger.exception("CSV 保存に失敗しました: %s", filepath)
+            QMessageBox.critical(self, "エラー", f"CSV 保存に失敗しました:\n{e}")
+
+    def _write_chart_data_to_csv(self, filepath: str, spec: ChartSpec) -> None:
+        """
+        ChartSpec のデータを縦持ち CSV (utf-8-sig) で保存する。
+        列: series, x, y_raw, y_smoothed
+        先頭にメタデータコメント行: # metric=..., smoothing=..., window=..., ema_weight=...
+        """
+        row = self.list_metrics.currentRow()
+        item = self.list_metrics.item(row) if row >= 0 else None
+        metric_key = item.data(Qt.ItemDataRole.UserRole) if item else "unknown"
+        smoothing = self.combo_smoothing.currentData() or "ma"
+        window = self.spin_ma.value()
+        ema_weight = self.spin_ema.value()
+
+        comment_line = f"# metric={metric_key}, smoothing={smoothing}, window={window}, ema_weight={ema_weight:.3f}\n"
+
+        rows = []
+        for side, data, legend in [("A", spec.data_a, spec.legend_label_a), ("B", spec.data_b, spec.legend_label_b)]:
+            if not data.has_data or data.x is None:
+                continue
+            series_name = legend if legend else f"Series {side}"
+            x_arr = data.x
+            y_raw_arr = data.y_raw if data.y_raw is not None else [np.nan] * len(x_arr)
+            y_smooth_arr = data.y_ma if data.y_ma is not None else [np.nan] * len(x_arr)
+
+            for x_val, y_r, y_s in zip(x_arr, y_raw_arr, y_smooth_arr):
+                rows.append({
+                    "series": series_name,
+                    "x": x_val,
+                    "y_raw": y_r,
+                    "y_smoothed": y_s,
+                })
+
+        df_out = pd.DataFrame(rows, columns=["series", "x", "y_raw", "y_smoothed"])
+        with open(filepath, "w", encoding="utf-8-sig", newline="") as f:
+            f.write(comment_line)
+            df_out.to_csv(f, index=False)
+
+    def _open_figure_export_dialog(self) -> None:
+        """論文用書き出しダイアログを開く"""
+        if not hasattr(self, '_current_spec') or self._current_spec is None:
+            QMessageBox.warning(self, "警告", "保存対象のグラフデータがありません。")
+            return
+
+        spec = self._current_spec
+        if not (spec.data_a.has_data or spec.data_b.has_data):
+            QMessageBox.warning(self, "警告", "保存対象のデータがありません。")
+            return
+
+        dialog = FigureExportDialog(
+            parent=self,
+            chart_spec=spec,
+            render_func=_render_chart
+        )
+        dialog.exec()

@@ -559,6 +559,115 @@ class TestUiCsvCompareWidget(unittest.TestCase):
             widget._redraw_timer.timeout.emit()
             self.assertEqual(mock_update.call_count, 1)
 
+    def test_smoothing_ui_controls_and_persistence(self):
+        """平滑化方式の切替・スライダー連動・窓幅上限拡大・QSettings永続化のテスト (ISSUE-14)"""
+        from src.core.settings import create_settings
+        from src.config import (
+            SETTINGS_KEY_CHART_SMOOTHING, SETTINGS_KEY_CHART_MA_WINDOW, SETTINGS_KEY_CHART_EMA_WEIGHT
+        )
+
+        # 1200 行の大きなデータで窓幅上限が 500 に拡大されることを確認
+        big_folder = self._make_csv_folder("big_log", {
+            "Episode": list(range(1, 1201)),
+            "TotalReward": [float(i) for i in range(1200)]
+        })
+        widget = CsvCompareWidget()
+        widget.load_csvs(big_folder, big_folder)
+
+        # 窓幅上限の確認 (1200 // 2 = 600)
+        self.assertEqual(widget.slider_ma.maximum(), 600)
+        self.assertEqual(widget.spin_ma.maximum(), 600)
+
+        # スライダーとスピンボックスの連動（MA）
+        widget.slider_ma.setValue(250)
+        self.assertEqual(widget.spin_ma.value(), 250)
+        widget.spin_ma.setValue(500)
+        self.assertEqual(widget.slider_ma.value(), 500)
+
+        # EMA 切り替え
+        ema_idx = widget.combo_smoothing.findData("ema")
+        widget.combo_smoothing.setCurrentIndex(ema_idx)
+        self.assertTrue(widget.container_ma.isHidden())
+        self.assertFalse(widget.container_ema.isHidden())
+
+        # EMA スライダーとスピンボックスの連動
+        widget.slider_ema.setValue(800)
+        self.assertAlmostEqual(widget.spin_ema.value(), 0.8)
+        widget.spin_ema.setValue(0.75)
+        self.assertEqual(widget.slider_ema.value(), 750)
+
+        # QSettings に保存されていることを確認
+        s = create_settings()
+        self.assertEqual(s.value(SETTINGS_KEY_CHART_SMOOTHING), "ema")
+        self.assertEqual(int(s.value(SETTINGS_KEY_CHART_MA_WINDOW)), 500)
+        self.assertAlmostEqual(float(s.value(SETTINGS_KEY_CHART_EMA_WEIGHT)), 0.75)
+
+        # 新規インスタンスで復元されることを確認
+        widget2 = CsvCompareWidget()
+        self.assertEqual(widget2.combo_smoothing.currentData(), "ema")
+        self.assertEqual(widget2.spin_ma.value(), 500)
+        self.assertAlmostEqual(widget2.spin_ema.value(), 0.75)
+
+    def test_log_scale_and_symlog(self):
+        """Y軸対数表示のテスト（正の値のみで log、0以下を含む場合は symlog） (ISSUE-14)"""
+        # 1. 正の値のみ
+        folder_pos = self._make_csv_folder("pos_log", {
+            "Episode": [1, 2, 3],
+            "TotalReward": [10.0, 100.0, 1000.0]
+        })
+        widget = CsvCompareWidget()
+        widget.load_csvs(folder_pos, folder_pos)
+        widget.cb_log_scale.setChecked(True)
+
+        ax = widget.figure.axes[0]
+        self.assertEqual(ax.get_yscale(), "log")
+        self.assertFalse(ax.get_ylabel().endswith("(symlog)"))
+
+        # 2. 0以下の値を含む
+        folder_zero = self._make_csv_folder("zero_log", {
+            "Episode": [1, 2, 3],
+            "TotalReward": [-5.0, 0.0, 10.0]
+        })
+        widget.load_csvs(folder_zero, folder_zero)
+        ax = widget.figure.axes[0]
+        self.assertEqual(ax.get_yscale(), "symlog")
+        self.assertTrue(ax.get_ylabel().endswith("(symlog)"))
+
+        # 3. チェック解除でリニア
+        widget.cb_log_scale.setChecked(False)
+        ax = widget.figure.axes[0]
+        self.assertEqual(ax.get_yscale(), "linear")
+
+    def test_export_chart_data_to_csv(self):
+        """「表示データを CSV に保存」の出力検証 (ISSUE-14)"""
+        import pandas as pd
+        folder = self._make_csv_folder("export_test", {
+            "Episode": [1, 2, 3],
+            "TotalReward": [10.0, 20.0, 30.0]
+        })
+        widget = CsvCompareWidget()
+        widget.load_csvs(folder, folder)
+
+        out_csv = os.path.join(self.test_dir, "test_exported.csv")
+        widget._write_chart_data_to_csv(out_csv, widget._current_spec)
+
+        # ファイルが存在すること
+        self.assertTrue(os.path.exists(out_csv))
+
+        # 先頭行がコメント行であること
+        with open(out_csv, "r", encoding="utf-8-sig") as f:
+            first_line = f.readline()
+            self.assertTrue(first_line.startswith("# metric="))
+            self.assertIn("smoothing=", first_line)
+
+        # pandas.read_csv(comment="#") で正しく読めること
+        df_read = pd.read_csv(out_csv, comment="#", encoding="utf-8-sig")
+        self.assertEqual(list(df_read.columns), ["series", "x", "y_raw", "y_smoothed"])
+        self.assertGreater(len(df_read), 0)
+        # 値の一致確認
+        self.assertEqual(list(df_read["x"][:3]), [1, 2, 3])
+        self.assertEqual(list(df_read["y_raw"][:3]), [10.0, 20.0, 30.0])
+
 
 if __name__ == "__main__":
     unittest.main()

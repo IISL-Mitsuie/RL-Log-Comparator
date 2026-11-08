@@ -22,6 +22,10 @@ SETTINGS_KEY_EXPLORER_SPLITTER_STATE = "explorer/splitter_state"
 SETTINGS_KEY_EXPLORER_HEADER_STATE = "explorer/header_state"
 SETTINGS_KEY_EXPLORER_HEADER_COLUMNS = "explorer/header_columns"
 SETTINGS_KEY_THEME = "ui/theme"
+SETTINGS_KEY_CHART_SMOOTHING = "chart/smoothing"
+SETTINGS_KEY_CHART_MA_WINDOW = "chart/ma_window"
+SETTINGS_KEY_CHART_EMA_WEIGHT = "chart/ema_weight"
+SETTINGS_KEY_CHART_LOG_SCALE = "chart/log_scale"
 
 # グラフフォントサイズ デフォルト値 (pt)
 DEFAULT_CHART_FONT_LABEL = 11

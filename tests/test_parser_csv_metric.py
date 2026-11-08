@@ -9,7 +9,7 @@ import shutil
 import numpy as np
 import pandas as pd
 from src.core.parsers.csv_metric import (
-    read_log_csv, compute_metric_series
+    read_log_csv, compute_metric_series, ema_smooth
 )
 from tests.helpers import create_dummy_experiment_folder
 
@@ -435,6 +435,72 @@ class TestCsvMetricCorrectness(unittest.TestCase):
             os.path.join(folder, "log_task_3.csv"), index=False)
         df = load_task_dataframe(None, folder, TaskOption(task_id=3, display_name="Task 3", short_name="Task 3"))
         self.assertEqual(list(df["Episode"]), [11, 12])
+
+    def test_ema_smooth_calculation(self):
+        """TensorBoard 方式の EMA 手計算値との一致を検証"""
+        y = np.array([10.0, 20.0, 30.0])
+        # weight = 0.6 の手計算値:
+        # i=0: 10.0
+        # i=1: (10*0.6*0.4 + 0.4*20) / (1 - 0.6^2) = (2.4 + 8.0) / 0.64 = 10.4 / 0.64 = 16.25
+        # i=2: (10.4*0.6 + 0.4*30) / (1 - 0.6^3) = (6.24 + 12.0) / (1 - 0.216) = 18.24 / 0.784 = 23.26530612244898
+        expected = np.array([10.0, 16.25, 18.24 / 0.784])
+        smoothed = ema_smooth(y, weight=0.6)
+        np.testing.assert_allclose(smoothed, expected, rtol=1e-7)
+
+        # weight = 0.0 は元の値と同じ
+        smoothed_zero = ema_smooth(y, weight=0.0)
+        np.testing.assert_allclose(smoothed_zero, y, rtol=1e-7)
+
+        # 空配列
+        empty_res = ema_smooth(np.array([]), weight=0.6)
+        self.assertEqual(len(empty_res), 0)
+
+        # 不正な weight の検証
+        with self.assertRaises(ValueError):
+            ema_smooth(y, weight=-0.1)
+        with self.assertRaises(ValueError):
+            ema_smooth(y, weight=1.0)
+
+    def test_ema_smooth_nan_handling(self):
+        """NaN をスキップし、NaN の位置は NaN を維持することを検証"""
+        y = np.array([10.0, np.nan, 20.0])
+        smoothed = ema_smooth(y, weight=0.6)
+        self.assertAlmostEqual(smoothed[0], 10.0)
+        self.assertTrue(np.isnan(smoothed[1]))
+        self.assertAlmostEqual(smoothed[2], 16.25)
+
+    def test_compute_metric_series_smoothing_options(self):
+        """compute_metric_series の平滑化方式切り替え (ma / ema / none) の検証"""
+        df = pd.DataFrame({
+            "Episode": [1, 2, 3],
+            "TotalReward": [10.0, 20.0, 30.0]
+        })
+        # MA
+        res_ma = compute_metric_series(df, "__reward__", window=2, label_prefix="Test", smoothing="ma")
+        self.assertEqual(res_ma.legend_label_ma, "Test (移動平均: 2ep)")
+        self.assertAlmostEqual(res_ma.y_smoothed[1], 15.0)
+
+        # EMA
+        res_ema = compute_metric_series(df, "__reward__", label_prefix="Test", smoothing="ema", ema_weight=0.6)
+        self.assertEqual(res_ema.legend_label_ma, "Test (EMA: 0.6)")
+        self.assertAlmostEqual(res_ema.y_smoothed[1], 16.25)
+
+        # None
+        res_none = compute_metric_series(df, "__reward__", label_prefix="Test", smoothing="none")
+        self.assertEqual(res_none.legend_label_ma, "Test (生データ)")
+        self.assertAlmostEqual(res_none.y_smoothed[1], 20.0)
+
+        # 成功率での平滑化切り替え
+        df_succ = pd.DataFrame({
+            "Episode": [1, 2, 3],
+            "Result": ["failed", "goal", "goal"]
+        })
+        res_succ_ema = compute_metric_series(df_succ, "__success_rate__", label_prefix="Test", smoothing="ema", ema_weight=0.6)
+        self.assertIn("EMA: 0.6", res_succ_ema.y_label)
+        self.assertIn("成功率", res_succ_ema.legend_label_ma)
+
+        res_succ_none = compute_metric_series(df_succ, "__success_rate__", label_prefix="Test", smoothing="none")
+        self.assertEqual(res_succ_none.y_label, "Goal Success Rate (%)")
 
 
 class TestCsvLoadError(unittest.TestCase):
