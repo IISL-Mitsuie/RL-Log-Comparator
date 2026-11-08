@@ -668,6 +668,77 @@ class TestUiCsvCompareWidget(unittest.TestCase):
         self.assertEqual(list(df_read["x"][:3]), [1, 2, 3])
         self.assertEqual(list(df_read["y_raw"][:3]), [10.0, 20.0, 30.0])
 
+    def test_y_label_auto_follows_smoothing_changes_when_unmodified(self):
+        """成功率表示中に窓幅・EMA係数を変更した際、未編集ならY軸ラベルが自動追従し、手編集時は保持されること"""
+        widget = CsvCompareWidget()
+        widget.load_csvs(self.folder_a, self.folder_b)
+
+        # 成功率 (GoalSuccessRate) を選択
+        target_row = -1
+        for i in range(widget.list_metrics.count()):
+            item = widget.list_metrics.item(i)
+            if item.data(32) == "GoalSuccessRate" or "成功率" in item.text():
+                target_row = i
+                break
+        self.assertGreaterEqual(target_row, 0)
+        widget.list_metrics.setCurrentRow(target_row)
+
+        # 初期状態 (MA 10 ep) の Y 軸ラベル確認
+        self.assertEqual(widget.txt_ylabel.text(), "Goal Success Rate (% [10 ep MA])")
+
+        # 1. MA 窓幅を変更 -> 未編集なので自動追従
+        widget.spin_ma.setValue(5)
+        widget._redraw_timer.timeout.emit()
+        self.assertEqual(widget.txt_ylabel.text(), "Goal Success Rate (% [5 ep MA])")
+
+        # 2. EMA に切替 -> 未編集なので自動追従
+        ema_idx = widget.combo_smoothing.findData("ema")
+        widget.combo_smoothing.setCurrentIndex(ema_idx)
+        self.assertEqual(widget.txt_ylabel.text(), "Goal Success Rate (% [EMA: 0.6])")
+
+        # 3. EMA 係数を変更 -> 未編集なので自動追従
+        widget.spin_ema.setValue(0.8)
+        widget._redraw_timer.timeout.emit()
+        self.assertEqual(widget.txt_ylabel.text(), "Goal Success Rate (% [EMA: 0.8])")
+
+        # 4. ユーザーが手入力でカスタム Y 軸ラベルに変更した場合
+        widget.txt_ylabel.setText("Custom Success Rate Label")
+        widget.spin_ema.setValue(0.5)
+        widget._redraw_timer.timeout.emit()
+        # 手入力したラベルが上書きされずに残ること
+        self.assertEqual(widget.txt_ylabel.text(), "Custom Success Rate Label")
+
+    def test_custom_texts_preserved_on_smoothing_type_changed(self):
+        """カスタムタイトル・凡例・X軸ラベルを入力した状態で平滑化方式を切り替えても消去されないこと"""
+        widget = CsvCompareWidget()
+        widget.load_csvs(self.folder_a, self.folder_b)
+
+        # カスタムテキストを入力
+        widget.txt_title.setText("Custom Title For Test")
+        widget.txt_xlabel.setText("Custom X Axis")
+        widget.txt_legend_a.setText("Legend A Custom")
+        widget.txt_legend_b.setText("Legend B Custom")
+
+        # 平滑化方式を EMA に切り替え
+        ema_idx = widget.combo_smoothing.findData("ema")
+        widget.combo_smoothing.setCurrentIndex(ema_idx)
+
+        # カスタムテキストが消去されず維持されていること
+        self.assertEqual(widget.txt_title.text(), "Custom Title For Test")
+        self.assertEqual(widget.txt_xlabel.text(), "Custom X Axis")
+        self.assertEqual(widget.txt_legend_a.text(), "Legend A Custom")
+        self.assertEqual(widget.txt_legend_b.text(), "Legend B Custom")
+
+        # 平滑化方式を なし (none) に切り替え
+        none_idx = widget.combo_smoothing.findData("none")
+        widget.combo_smoothing.setCurrentIndex(none_idx)
+
+        # 引き続き維持されていること
+        self.assertEqual(widget.txt_title.text(), "Custom Title For Test")
+        self.assertEqual(widget.txt_xlabel.text(), "Custom X Axis")
+        self.assertEqual(widget.txt_legend_a.text(), "Legend A Custom")
+        self.assertEqual(widget.txt_legend_b.text(), "Legend B Custom")
+
 
 if __name__ == "__main__":
     unittest.main()

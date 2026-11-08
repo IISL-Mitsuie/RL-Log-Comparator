@@ -69,6 +69,8 @@ class ChartSpec:
     show_grid: bool = True
     x_axis_mismatch: bool = False
     load_error_msgs: dict[str, str] = field(default_factory=dict)
+    has_df_a: bool = False
+    has_df_b: bool = False
 
 
 def _drop_nan(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -191,8 +193,8 @@ def _render_chart(ax, spec: ChartSpec) -> bool:
     # 描画できる系列がない場合
     if not has_plot and spec.load_error_msgs:
         center_lines = [spec.load_error_msgs[side] for side in sorted(spec.load_error_msgs)]
-        for side, has_d in (("A", spec.data_a.has_data), ("B", spec.data_b.has_data)):
-            if side not in spec.load_error_msgs and not has_d:
+        for side, has_df in (("A", spec.has_df_a), ("B", spec.has_df_b)):
+            if side not in spec.load_error_msgs and has_df:
                 center_lines.append(f"{side}: [該当列なし]")
         ax.text(0.5, 0.5, "\n".join(center_lines),
                 horizontalalignment='center', verticalalignment='center',
@@ -590,7 +592,6 @@ class CsvCompareWidget(QWidget):
         self.container_ma.setVisible(mode == "ma")
         self.container_ema.setVisible(mode == "ema")
         self._save_smoothing_settings()
-        self._need_reset_texts = True
         self.update_chart()
 
     def _on_log_scale_toggled(self, checked: bool) -> None:
@@ -1120,6 +1121,10 @@ class CsvCompareWidget(QWidget):
         if hasattr(self, 'txt_xlabel'):
             self.txt_xlabel.setPlaceholderText(default_x_label)
         if hasattr(self, 'txt_ylabel'):
+            if self.txt_ylabel.text() == self.txt_ylabel.placeholderText():
+                self.txt_ylabel.blockSignals(True)
+                self.txt_ylabel.setText(default_y_label)
+                self.txt_ylabel.blockSignals(False)
             self.txt_ylabel.setPlaceholderText(default_y_label)
         if hasattr(self, 'txt_legend_a') and hasattr(self, 'txt_legend_b'):
             self.txt_legend_a.setPlaceholderText(data_a.legend_label_ma or "A系列のデフォルト凡例")
@@ -1170,6 +1175,8 @@ class CsvCompareWidget(QWidget):
             show_grid=True,
             x_axis_mismatch=x_axis_mismatch,
             load_error_msgs=load_error_msgs,
+            has_df_a=self.df_a is not None,
+            has_df_b=self.df_b is not None,
         )
         self._current_spec = spec
 

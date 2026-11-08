@@ -838,9 +838,6 @@ def _compute_metric(
     # 該当列なし
     return MetricSeriesData(has_data=False, y_label=target_key)
 
-    # 該当列なし
-    return MetricSeriesData(has_data=False, y_label=target_key)
-
 
 def _build_metric_result(
     df: pd.DataFrame,
