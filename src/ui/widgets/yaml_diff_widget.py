@@ -12,9 +12,9 @@ from PySide6.QtGui import QColor, QBrush, QFont
 
 from src.core.parsers.experiment import get_experiment_info
 from src.core.parsers.yaml_diff import read_yaml_file_with_error, build_diff_tree, DiffNode
+from src.ui.theme import current_theme, get_theme_manager
 
-_STATUS_STYLE = "font-size: 13px; font-weight: bold; color: #0055cc; padding: 4px;"
-_STATUS_ERROR_STYLE = "font-size: 13px; font-weight: bold; color: #c0392b; padding: 4px;"
+_STATUS_BASE_STYLE = "font-size: 13px; font-weight: bold; padding: 4px;"
 
 
 class YamlDiffWidget(QWidget):
@@ -28,6 +28,11 @@ class YamlDiffWidget(QWidget):
         self.yaml_b = {}
         self._load_errors: list[str] = []  # 設定ファイルの解析に失敗した旨のメッセージ
         self._init_ui()
+        get_theme_manager().theme_changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self, _theme=None) -> None:
+        """テーマ変更時にツリーを再構築"""
+        self.refresh_tree()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -50,7 +55,8 @@ class YamlDiffWidget(QWidget):
         layout.addLayout(ctrl_layout)
 
         self.lbl_status = QLabel("")
-        self.lbl_status.setStyleSheet(_STATUS_STYLE)
+        self.lbl_status.setProperty("role", "status")
+        self.lbl_status.setStyleSheet(_STATUS_BASE_STYLE)
         layout.addWidget(self.lbl_status)
 
         self.tree = QTreeWidget()
@@ -118,20 +124,35 @@ class YamlDiffWidget(QWidget):
                 status = f"※ 全パラメータを表示中 ({root_count} 項目)"
 
         if self._load_errors:
-            self.lbl_status.setStyleSheet(_STATUS_ERROR_STYLE)
+            self.lbl_status.setProperty("role", "status-error")
+            self.lbl_status.style().unpolish(self.lbl_status)
+            self.lbl_status.style().polish(self.lbl_status)
             self.lbl_status.setText("\n".join([f"⚠ {msg}" for msg in self._load_errors] + [status]))
         else:
-            self.lbl_status.setStyleSheet(_STATUS_STYLE)
+            self.lbl_status.setProperty("role", "status")
+            self.lbl_status.style().unpolish(self.lbl_status)
+            self.lbl_status.style().polish(self.lbl_status)
             self.lbl_status.setText(status)
 
     def _render_node(self, parent_item: QTreeWidgetItem, node: DiffNode) -> None:
         """DiffNode 構造体を QTreeWidgetItem に描画"""
         item = QTreeWidgetItem(parent_item, [node.key, node.val_a_str, node.val_b_str, node.state_str])
 
-        if node.bg_color_hex:
-            bg_color = QColor(node.bg_color_hex)
+        theme = current_theme()
+        bg_color_str = None
+        if node.kind == "only_a":
+            bg_color_str = theme.diff_only_a_bg
+        elif node.kind == "only_b":
+            bg_color_str = theme.diff_only_b_bg
+        elif node.kind == "changed":
+            bg_color_str = theme.diff_changed_bg
+
+        if bg_color_str:
+            bg_color = QColor(bg_color_str)
+            text_color = QColor(theme.diff_text)
             for col in range(4):
                 item.setBackground(col, QBrush(bg_color))
+                item.setForeground(col, QBrush(text_color))
             item.setFont(0, QFont("", -1, QFont.Weight.Bold))
 
         for child in node.children:

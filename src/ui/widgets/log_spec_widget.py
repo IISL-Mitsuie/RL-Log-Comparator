@@ -23,15 +23,15 @@ class LogSpecWidget(QWidget):
         # 上部アクションバー
         top_layout = QHBoxLayout()
         lbl_title = QLabel("RL-Log-Comparator ログデータ仕様・ガイド")
-        lbl_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #2c3e50;")
+        lbl_title.setProperty("role", "heading")
+        lbl_title.setStyleSheet("font-size: 15px; font-weight: bold;")
         top_layout.addWidget(lbl_title)
 
         top_layout.addStretch()
 
         btn_export = QPushButton("📥 ログ仕様書 (DATA_FORMAT.md) をダウンロード")
-        btn_export.setStyleSheet(
-            "font-weight: bold; background-color: #27ae60; color: white; padding: 6px 12px; border-radius: 4px;"
-        )
+        btn_export.setProperty("role", "accent")
+        btn_export.setStyleSheet("padding: 6px 12px; border-radius: 4px;")
         btn_export.clicked.connect(self._export_markdown)
         top_layout.addWidget(btn_export)
 

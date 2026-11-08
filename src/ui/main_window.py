@@ -22,6 +22,7 @@ from src.config import (
     GITHUB_REPO_OWNER, GITHUB_REPO_NAME,
     UPDATE_CHECK_TIMEOUT_SEC
 )
+from src.ui.theme import get_theme_manager
 from src.core.paths import get_app_icon_path
 from src.core.history import RecentFolderManager, SessionStateManager
 from src.core.updater import fetch_latest_release_info, UpdateInfo
@@ -210,9 +211,21 @@ class ExperimentCompareApp(QMainWindow):
         self.setCentralWidget(main_widget)
         main_layout = QVBoxLayout(main_widget)
 
-        # 0. 最上部: ユーティリティバー (更新確認ボタン)
+        # 0. 最上部: ユーティリティバー (テーマ切替、更新確認ボタン)
         top_bar = QHBoxLayout()
         top_bar.addStretch()
+
+        self.combo_theme = QComboBox()
+        self.combo_theme.setToolTip("外観テーマを切り替えます")
+        self.combo_theme.addItem("システムに従う", "system")
+        self.combo_theme.addItem("ライト", "light")
+        self.combo_theme.addItem("ダーク", "dark")
+        current_pref = get_theme_manager().get_preference()
+        pref_idx = self.combo_theme.findData(current_pref)
+        if pref_idx >= 0:
+            self.combo_theme.setCurrentIndex(pref_idx)
+        self.combo_theme.currentIndexChanged.connect(self._on_theme_changed)
+        top_bar.addWidget(self.combo_theme)
 
         self.btn_update_header = QPushButton("🔄 更新を確認")
         self.btn_update_header.setToolTip("最新バージョンの有無を確認します")
@@ -591,6 +604,12 @@ class ExperimentCompareApp(QMainWindow):
         worker.signals.finished.connect(lambda gen, info: self._apply_update_info(info))
         QThreadPool.globalInstance().start(worker)
 
+    def _on_theme_changed(self, index: int) -> None:
+        """テーマ切替コンボボックス変更時のハンドラ"""
+        pref = self.combo_theme.currentData()
+        if pref:
+            get_theme_manager().set_preference(pref)
+
     def _apply_update_info(self, info: Optional[UpdateInfo]) -> None:
         """更新情報の取得結果をUIに反映"""
         self._latest_update_info = info
@@ -599,14 +618,9 @@ class ExperimentCompareApp(QMainWindow):
             self.btn_update_header.setToolTip(
                 f"新バージョン v{info.version} が利用可能です！\nクリックしてリリースノートを確認・更新します"
             )
-            self.btn_update_header.setStyleSheet(
-                "QPushButton {"
-                "   background-color: #0969da; color: white; font-weight: bold; padding: 4px 12px; border-radius: 4px;"
-                "}"
-                "QPushButton:hover {"
-                "   background-color: #0858b9;"
-                "}"
-            )
+            self.btn_update_header.setProperty("role", "accent")
+            self.btn_update_header.style().unpolish(self.btn_update_header)
+            self.btn_update_header.style().polish(self.btn_update_header)
             try:
                 self.btn_update_header.clicked.disconnect()
             except Exception:

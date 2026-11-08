@@ -11,6 +11,7 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
 
 from src.core.parsers.experiment_scanner import ExperimentLogRecord
+from src.ui.theme import current_theme
 
 
 class ExperimentAction(Enum):
@@ -44,7 +45,7 @@ class ExperimentActionDialog(QDialog):
         info_lay = QVBoxLayout(info_group)
         info_lay.setSpacing(6)
 
-        shield_str = f" <span style='font-size: 12px; color: #555;'>(Shield: {self.record.display_shield})</span>" if self.record.display_shield != "-" else ""
+        shield_str = f" <span style='font-size: 12px; color: {current_theme().text_muted};'>(Shield: {self.record.display_shield})</span>" if self.record.display_shield != "-" else ""
         lbl_title = QLabel(f"<b>[{self.record.mode}]</b>{shield_str} {self.record.display_timestamp}")
 
         lbl_title.setStyleSheet("font-size: 14px;")
@@ -53,7 +54,9 @@ class ExperimentActionDialog(QDialog):
         lbl_folder = QLabel(f"フォルダ: {self.record.folder_name}")
         info_lay.addWidget(lbl_folder)
 
-        lbl_path = QLabel(f"<span style='color: #666; font-size: 11px;'>{self.record.folder_path}</span>")
+        lbl_path = QLabel(self.record.folder_path)
+        lbl_path.setProperty("role", "muted")
+        lbl_path.setStyleSheet("font-size: 11px;")
         lbl_path.setWordWrap(True)
         info_lay.addWidget(lbl_path)
 
