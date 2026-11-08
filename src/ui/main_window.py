@@ -13,8 +13,8 @@ from PySide6.QtWidgets import (
     QGroupBox, QLabel, QComboBox, QPushButton, QTabWidget,
     QFileDialog, QMessageBox, QStatusBar, QProgressBar
 )
-from PySide6.QtGui import QIcon
-from PySide6.QtCore import Qt, QThreadPool, QTimer
+from PySide6.QtGui import QIcon, QKeySequence, QAction, QActionGroup, QDesktopServices
+from PySide6.QtCore import Qt, QThreadPool, QTimer, QUrl
 
 
 from src.config import (
@@ -25,6 +25,7 @@ from src.config import (
 from src.ui.theme import get_theme_manager
 from src.core.paths import get_app_icon_path
 from src.core.history import RecentFolderManager, SessionStateManager
+from src.core.logging_setup import get_log_dir
 from src.core.updater import fetch_latest_release_info, UpdateInfo
 from src.ui.dialogs.update_dialog import UpdateDialog
 from src.core.parsers.experiment import get_experiment_info
@@ -312,6 +313,125 @@ class ExperimentCompareApp(QMainWindow):
         # 3. 最下部: ステータスバー（読み込みの失敗などを表示）
         self.setStatusBar(QStatusBar())
 
+        # 4. メニューバー
+        self._init_menu_bar()
+
+    def _init_menu_bar(self) -> None:
+        """メニューバーの構築（ショートカットキーおよび各アクションの登録）"""
+        menubar = self.menuBar()
+
+        # ---------------------------------------------------------------------
+        # 1. ファイル(&F)
+        # ---------------------------------------------------------------------
+        self.menu_file = menubar.addMenu("ファイル(&F)")
+
+        self.act_open_a = QAction("フォルダ A を開く…", self)
+        self.act_open_a.setShortcut(QKeySequence("Ctrl+O"))
+        self.act_open_a.triggered.connect(lambda: self._browse_folder_smart(is_target_a=True))
+        self.menu_file.addAction(self.act_open_a)
+
+        self.act_open_b = QAction("フォルダ B を開く…", self)
+        self.act_open_b.setShortcut(QKeySequence("Ctrl+Shift+O"))
+        self.act_open_b.triggered.connect(lambda: self._browse_folder_smart(is_target_a=False))
+        self.menu_file.addAction(self.act_open_b)
+
+        self.act_swap = QAction("A と B を入れ替え", self)
+        self.act_swap.setShortcut(QKeySequence("Ctrl+Shift+X"))
+        self.act_swap.triggered.connect(self._swap_folders)
+        self.menu_file.addAction(self.act_swap)
+
+        self.menu_file.addSeparator()
+
+        self.act_exit = QAction("終了(&X)", self)
+        self.act_exit.setShortcut(QKeySequence("Ctrl+Q"))
+        self.act_exit.triggered.connect(self.close)
+        self.menu_file.addAction(self.act_exit)
+
+        # ---------------------------------------------------------------------
+        # 2. 表示(&V)
+        # ---------------------------------------------------------------------
+        self.menu_view = menubar.addMenu("表示(&V)")
+
+        self.act_tab_1 = QAction("1. 実験ログ一覧・探索", self)
+        self.act_tab_1.setShortcut(QKeySequence("Ctrl+1"))
+        self.act_tab_1.triggered.connect(lambda: self.tabs.setCurrentIndex(0))
+        self.menu_view.addAction(self.act_tab_1)
+
+        self.act_tab_2 = QAction("2. ハイパーパラメータ差分", self)
+        self.act_tab_2.setShortcut(QKeySequence("Ctrl+2"))
+        self.act_tab_2.triggered.connect(lambda: self.tabs.setCurrentIndex(1))
+        self.menu_view.addAction(self.act_tab_2)
+
+        self.act_tab_3 = QAction("3. 画像目視比較", self)
+        self.act_tab_3.setShortcut(QKeySequence("Ctrl+3"))
+        self.act_tab_3.triggered.connect(lambda: self.tabs.setCurrentIndex(2))
+        self.menu_view.addAction(self.act_tab_3)
+
+        self.act_tab_4 = QAction("4. 数値ログ比較グラフ", self)
+        self.act_tab_4.setShortcut(QKeySequence("Ctrl+4"))
+        self.act_tab_4.triggered.connect(lambda: self.tabs.setCurrentIndex(3))
+        self.menu_view.addAction(self.act_tab_4)
+
+        self.act_tab_5 = QAction("5. ログ仕様ガイド・エクスポート", self)
+        self.act_tab_5.setShortcut(QKeySequence("Ctrl+5"))
+        self.act_tab_5.triggered.connect(lambda: self.tabs.setCurrentIndex(4))
+        self.menu_view.addAction(self.act_tab_5)
+
+        self.menu_view.addSeparator()
+
+        # テーマ サブメニュー
+        self.menu_theme = self.menu_view.addMenu("テーマ(&T)")
+        self.theme_action_group = QActionGroup(self)
+        self.theme_action_group.setExclusive(True)
+
+        self.act_theme_system = QAction("システムに従う", self, checkable=True)
+        self.act_theme_system.triggered.connect(lambda: self._on_theme_action_triggered("system"))
+        self.theme_action_group.addAction(self.act_theme_system)
+        self.menu_theme.addAction(self.act_theme_system)
+
+        self.act_theme_light = QAction("ライト", self, checkable=True)
+        self.act_theme_light.triggered.connect(lambda: self._on_theme_action_triggered("light"))
+        self.theme_action_group.addAction(self.act_theme_light)
+        self.menu_theme.addAction(self.act_theme_light)
+
+        self.act_theme_dark = QAction("ダーク", self, checkable=True)
+        self.act_theme_dark.triggered.connect(lambda: self._on_theme_action_triggered("dark"))
+        self.theme_action_group.addAction(self.act_theme_dark)
+        self.menu_theme.addAction(self.act_theme_dark)
+
+        self._sync_theme_actions()
+        get_theme_manager().theme_changed.connect(lambda _theme: self._sync_theme_actions())
+
+        # ---------------------------------------------------------------------
+        # 3. ヘルプ(&H)
+        # ---------------------------------------------------------------------
+        self.menu_help = menubar.addMenu("ヘルプ(&H)")
+
+        self.act_spec_guide = QAction("ログ仕様ガイド", self)
+        self.act_spec_guide.setShortcut(QKeySequence("F1"))
+        self.act_spec_guide.triggered.connect(lambda: self.tabs.setCurrentWidget(self.tab_spec))
+        self.menu_help.addAction(self.act_spec_guide)
+
+        self.menu_help.addSeparator()
+
+        self.act_check_update = QAction("更新を確認…", self)
+        self.act_check_update.triggered.connect(self._on_manual_check_update)
+        self.menu_help.addAction(self.act_check_update)
+
+        self.act_open_log_dir = QAction("ログフォルダを開く", self)
+        self.act_open_log_dir.triggered.connect(self._open_log_folder)
+        self.menu_help.addAction(self.act_open_log_dir)
+
+        self.act_open_repo = QAction("GitHub リポジトリを開く", self)
+        self.act_open_repo.triggered.connect(self._open_github_repo)
+        self.menu_help.addAction(self.act_open_repo)
+
+        self.menu_help.addSeparator()
+
+        self.act_about = QAction("バージョン情報…", self)
+        self.act_about.triggered.connect(self._show_about_dialog)
+        self.menu_help.addAction(self.act_about)
+
     def _on_set_folder_a_from_explorer(self, folder_path: str) -> None:
         """エクスプローラータブからのフォルダA設定要求"""
         if not folder_path or not os.path.exists(folder_path):
@@ -417,6 +537,25 @@ class ExperimentCompareApp(QMainWindow):
             self._history = self.history_mgr.add_folder(norm_folder)
             self._update_history_combos()
             self._check_auto_load()
+
+    def _swap_folders(self) -> None:
+        """フォルダ A と B の入力パスを入れ替えて再読み込み"""
+        self._debounce_timer.stop()
+        path_a = self.combo_folder_a.currentText().strip()
+        path_b = self.combo_folder_b.currentText().strip()
+
+        self.combo_folder_a.blockSignals(True)
+        self.combo_folder_b.blockSignals(True)
+        try:
+            self.combo_folder_a.setEditText(path_b)
+            self.combo_folder_b.setEditText(path_a)
+        finally:
+            self.combo_folder_a.blockSignals(False)
+            self.combo_folder_b.blockSignals(False)
+
+        self._last_loaded_a = ""
+        self._last_loaded_b = ""
+        self.load_all()
 
     def _check_auto_load(self) -> None:
         """両方の入力欄に有効なフォルダが存在する場合に自動読み込みを実行"""
@@ -609,6 +748,31 @@ class ExperimentCompareApp(QMainWindow):
         pref = self.combo_theme.currentData()
         if pref:
             get_theme_manager().set_preference(pref)
+            self._sync_theme_actions(pref)
+
+    def _on_theme_action_triggered(self, pref: str) -> None:
+        """メニューからのテーマ切替ハンドラ"""
+        idx = self.combo_theme.findData(pref)
+        if idx >= 0:
+            self.combo_theme.setCurrentIndex(idx)
+        else:
+            get_theme_manager().set_preference(pref)
+            self._sync_theme_actions(pref)
+
+    def _sync_theme_actions(self, pref: Optional[str] = None) -> None:
+        """テーマアクションおよびヘッダーコンボボックスの選択状態を同期"""
+        if pref is None:
+            pref = get_theme_manager().get_preference()
+        if hasattr(self, 'act_theme_system'):
+            self.act_theme_system.setChecked(pref == "system")
+            self.act_theme_light.setChecked(pref == "light")
+            self.act_theme_dark.setChecked(pref == "dark")
+        if hasattr(self, 'combo_theme'):
+            idx = self.combo_theme.findData(pref)
+            if idx >= 0 and self.combo_theme.currentIndex() != idx:
+                self.combo_theme.blockSignals(True)
+                self.combo_theme.setCurrentIndex(idx)
+                self.combo_theme.blockSignals(False)
 
     def _apply_update_info(self, info: Optional[UpdateInfo]) -> None:
         """更新情報の取得結果をUIに反映"""
@@ -678,6 +842,17 @@ class ExperimentCompareApp(QMainWindow):
                 "更新確認",
                 f"お使いのバージョン (v{APP_VERSION}) は最新です。\n新しいアップデートはありません。"
             )
+
+    def _open_log_folder(self) -> None:
+        """ログ保存先フォルダを OS のファイルマネージャで開く"""
+        log_dir = get_log_dir()
+        os.makedirs(log_dir, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(log_dir))
+
+    def _open_github_repo(self) -> None:
+        """GitHub リポジトリページをブラウザで開く"""
+        repo_url = f"https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}"
+        QDesktopServices.openUrl(QUrl(repo_url))
 
     def _show_about_dialog(self) -> None:
         """バージョン情報ダイアログを表示"""

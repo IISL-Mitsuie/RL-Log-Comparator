@@ -185,6 +185,131 @@ class TestMainWindow(unittest.TestCase):
         self.assertIn("ハイパーパラメータ差分", message)
         self.assertIn("YAML の想定外エラー", message)
         self.assertIn("Traceback", logs.output[0])
+
+    def test_menu_bar_actions_and_shortcuts(self):
+        """メニューバーの構築とショートカットキーの設定検証 (ISSUE-16)"""
+        window = self._create_isolated_window()
+        self.assertIsNotNone(window.menuBar())
+        self.assertEqual(window.menu_file.title(), "ファイル(&F)")
+        self.assertEqual(window.menu_view.title(), "表示(&V)")
+        self.assertEqual(window.menu_help.title(), "ヘルプ(&H)")
+
+        # ファイルメニュー ショートカット
+        self.assertEqual(window.act_open_a.shortcut().toString(), "Ctrl+O")
+        self.assertEqual(window.act_open_b.shortcut().toString(), "Ctrl+Shift+O")
+        self.assertEqual(window.act_swap.shortcut().toString(), "Ctrl+Shift+X")
+        self.assertEqual(window.act_exit.shortcut().toString(), "Ctrl+Q")
+
+        # 表示メニュー ショートカット
+        self.assertEqual(window.act_tab_1.shortcut().toString(), "Ctrl+1")
+        self.assertEqual(window.act_tab_2.shortcut().toString(), "Ctrl+2")
+        self.assertEqual(window.act_tab_3.shortcut().toString(), "Ctrl+3")
+        self.assertEqual(window.act_tab_4.shortcut().toString(), "Ctrl+4")
+        self.assertEqual(window.act_tab_5.shortcut().toString(), "Ctrl+5")
+
+        # ヘルプメニュー ショートカット
+        self.assertEqual(window.act_spec_guide.shortcut().toString(), "F1")
+
+        # 表示メニューのアクションによるタブ切り替え
+        window.act_tab_2.trigger()
+        self.assertEqual(window.tabs.currentIndex(), 1)
+        window.act_tab_3.trigger()
+        self.assertEqual(window.tabs.currentIndex(), 2)
+        window.act_tab_4.trigger()
+        self.assertEqual(window.tabs.currentIndex(), 3)
+        window.act_tab_5.trigger()
+        self.assertEqual(window.tabs.currentIndex(), 4)
+        window.act_tab_1.trigger()
+        self.assertEqual(window.tabs.currentIndex(), 0)
+
+    def test_swap_folders_action(self):
+        """「A と B を入れ替え」でパスが反転し、重複なく 1 回だけ読み込みが走る (ISSUE-16)"""
+        window = self._create_isolated_window()
+        window.combo_folder_a.setEditText(self.folder_a)
+        window.combo_folder_b.setEditText(self.folder_b)
+        window._last_loaded_a = self.folder_a
+        window._last_loaded_b = self.folder_b
+
+        with patch.object(window, "load_all") as mock_load:
+            window.act_swap.trigger()
+
+        self.assertEqual(window.combo_folder_a.currentText(), self.folder_b)
+        self.assertEqual(window.combo_folder_b.currentText(), self.folder_a)
+        self.assertEqual(window._last_loaded_a, "")
+        self.assertEqual(window._last_loaded_b, "")
+        mock_load.assert_called_once()
+
+    def test_about_action_and_version(self):
+        """バージョン情報ダイアログに APP_VERSION が含まれることの検証 (ISSUE-16)"""
+        from src.config import APP_VERSION
+        from PySide6.QtWidgets import QMessageBox
+
+        window = self._create_isolated_window()
+        with patch.object(QMessageBox, "about") as mock_about:
+            window.act_about.trigger()
+            mock_about.assert_called_once()
+            args, _ = mock_about.call_args
+            text = args[2]
+            self.assertIn(f"v{APP_VERSION}", text)
+
+    def test_theme_menu_sync(self):
+        """テーマメニューの切り替えが ThemeManager およびヘッダーコンボと連動する検証 (ISSUE-16)"""
+        from src.ui.theme import get_theme_manager
+        tm = get_theme_manager()
+        orig_pref = tm.get_preference()
+
+        window = self._create_isolated_window()
+        try:
+            # メニューから「ダーク」を選択
+            window.act_theme_dark.trigger()
+            self.assertEqual(tm.get_preference(), "dark")
+            self.assertEqual(window.combo_theme.currentData(), "dark")
+            self.assertTrue(window.act_theme_dark.isChecked())
+            self.assertFalse(window.act_theme_light.isChecked())
+
+            # ヘッダーコンボボックスから「ライト」を選択
+            idx = window.combo_theme.findData("light")
+            window.combo_theme.setCurrentIndex(idx)
+            self.assertEqual(tm.get_preference(), "light")
+            self.assertTrue(window.act_theme_light.isChecked())
+            self.assertFalse(window.act_theme_dark.isChecked())
+        finally:
+            tm.set_preference(orig_pref)
+
+    def test_help_menu_actions(self):
+        """ヘルプメニューの各アクション（仕様ガイド、ログフォルダ、GitHub、更新確認）の検証 (ISSUE-16)"""
+        from src.config import GITHUB_REPO_OWNER, GITHUB_REPO_NAME
+        from src.core.logging_setup import get_log_dir
+
+        window = self._create_isolated_window()
+
+        # 1. 仕様ガイド
+        window.tabs.setCurrentIndex(0)
+        window.act_spec_guide.trigger()
+        self.assertEqual(window.tabs.currentWidget(), window.tab_spec)
+
+        # 2. ログフォルダを開く
+        with patch("src.ui.main_window.QDesktopServices.openUrl") as mock_open:
+            window.act_open_log_dir.trigger()
+            mock_open.assert_called_once()
+            url = mock_open.call_args[0][0]
+            log_dir = os.path.abspath(get_log_dir())
+            self.assertTrue(os.path.isdir(log_dir))
+            self.assertEqual(os.path.abspath(url.toLocalFile()), log_dir)
+
+        # 3. GitHub リポジトリを開く
+        with patch("src.ui.main_window.QDesktopServices.openUrl") as mock_open:
+            window.act_open_repo.trigger()
+            mock_open.assert_called_once()
+            url = mock_open.call_args[0][0]
+            expected_url = f"https://github.com/{GITHUB_REPO_OWNER}/{GITHUB_REPO_NAME}"
+            self.assertEqual(url.toString(), expected_url)
+
+        # 4. 更新を確認
+        with patch.object(window, "_on_manual_check_update") as mock_update:
+            window.act_check_update.trigger()
+            mock_update.assert_called_once()
+
 if __name__ == "__main__":
     unittest.main()
 

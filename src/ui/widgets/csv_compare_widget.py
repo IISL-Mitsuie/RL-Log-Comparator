@@ -228,6 +228,7 @@ class CsvCompareWidget(QWidget):
         self._redraw_timer.setInterval(100)
         self._redraw_timer.timeout.connect(self.update_chart)
         self._need_reset_texts = True
+        self._current_spec: Optional[ChartSpec] = None
         self._init_ui()
         get_theme_manager().theme_changed.connect(self._on_theme_changed)
 
@@ -701,54 +702,42 @@ class CsvCompareWidget(QWidget):
         except (ValueError, TypeError):
             font_legend = DEFAULT_CHART_FONT_LEGEND
 
-        if hasattr(self, 'spin_font_label'):
-            self.spin_font_label.blockSignals(True)
-            self.spin_font_label.setValue(font_label)
-            self.spin_font_label.blockSignals(False)
-        if hasattr(self, 'spin_font_ticks'):
-            self.spin_font_ticks.blockSignals(True)
-            self.spin_font_ticks.setValue(font_ticks)
-            self.spin_font_ticks.blockSignals(False)
-        if hasattr(self, 'spin_font_title'):
-            self.spin_font_title.blockSignals(True)
-            self.spin_font_title.setValue(font_title)
-            self.spin_font_title.blockSignals(False)
-        if hasattr(self, 'spin_font_legend'):
-            self.spin_font_legend.blockSignals(True)
-            self.spin_font_legend.setValue(font_legend)
-            self.spin_font_legend.blockSignals(False)
+        self.spin_font_label.blockSignals(True)
+        self.spin_font_label.setValue(font_label)
+        self.spin_font_label.blockSignals(False)
+        self.spin_font_ticks.blockSignals(True)
+        self.spin_font_ticks.setValue(font_ticks)
+        self.spin_font_ticks.blockSignals(False)
+        self.spin_font_title.blockSignals(True)
+        self.spin_font_title.setValue(font_title)
+        self.spin_font_title.blockSignals(False)
+        self.spin_font_legend.blockSignals(True)
+        self.spin_font_legend.setValue(font_legend)
+        self.spin_font_legend.blockSignals(False)
 
     def _save_chart_font_settings(self) -> None:
         """フォントサイズ設定を QSettings に保存"""
         settings = create_settings()
-        if hasattr(self, 'spin_font_label'):
-            settings.setValue(SETTINGS_KEY_CHART_FONT_LABEL, self.spin_font_label.value())
-        if hasattr(self, 'spin_font_ticks'):
-            settings.setValue(SETTINGS_KEY_CHART_FONT_TICKS, self.spin_font_ticks.value())
-        if hasattr(self, 'spin_font_title'):
-            settings.setValue(SETTINGS_KEY_CHART_FONT_TITLE, self.spin_font_title.value())
-        if hasattr(self, 'spin_font_legend'):
-            settings.setValue(SETTINGS_KEY_CHART_FONT_LEGEND, self.spin_font_legend.value())
+        settings.setValue(SETTINGS_KEY_CHART_FONT_LABEL, self.spin_font_label.value())
+        settings.setValue(SETTINGS_KEY_CHART_FONT_TICKS, self.spin_font_ticks.value())
+        settings.setValue(SETTINGS_KEY_CHART_FONT_TITLE, self.spin_font_title.value())
+        settings.setValue(SETTINGS_KEY_CHART_FONT_LEGEND, self.spin_font_legend.value())
 
     def _reset_all_custom_texts(self) -> None:
         """すべてのテキスト入力（タイトル・軸・凡例）およびフォントサイズをデフォルトに戻す"""
         self._need_reset_texts = True
-        if hasattr(self, 'spin_font_label'):
-            self.spin_font_label.blockSignals(True)
-            self.spin_font_label.setValue(DEFAULT_CHART_FONT_LABEL)
-            self.spin_font_label.blockSignals(False)
-        if hasattr(self, 'spin_font_ticks'):
-            self.spin_font_ticks.blockSignals(True)
-            self.spin_font_ticks.setValue(DEFAULT_CHART_FONT_TICKS)
-            self.spin_font_ticks.blockSignals(False)
-        if hasattr(self, 'spin_font_title'):
-            self.spin_font_title.blockSignals(True)
-            self.spin_font_title.setValue(DEFAULT_CHART_FONT_TITLE)
-            self.spin_font_title.blockSignals(False)
-        if hasattr(self, 'spin_font_legend'):
-            self.spin_font_legend.blockSignals(True)
-            self.spin_font_legend.setValue(DEFAULT_CHART_FONT_LEGEND)
-            self.spin_font_legend.blockSignals(False)
+        self.spin_font_label.blockSignals(True)
+        self.spin_font_label.setValue(DEFAULT_CHART_FONT_LABEL)
+        self.spin_font_label.blockSignals(False)
+        self.spin_font_ticks.blockSignals(True)
+        self.spin_font_ticks.setValue(DEFAULT_CHART_FONT_TICKS)
+        self.spin_font_ticks.blockSignals(False)
+        self.spin_font_title.blockSignals(True)
+        self.spin_font_title.setValue(DEFAULT_CHART_FONT_TITLE)
+        self.spin_font_title.blockSignals(False)
+        self.spin_font_legend.blockSignals(True)
+        self.spin_font_legend.setValue(DEFAULT_CHART_FONT_LEGEND)
+        self.spin_font_legend.blockSignals(False)
         self._save_chart_font_settings()
         self.update_chart()
 
@@ -1093,51 +1082,42 @@ class CsvCompareWidget(QWidget):
 
         # リセットフラグが立っている場合（指標・タスク変更、フォルダロード、リセットボタン押下時）
         if getattr(self, '_need_reset_texts', False):
-            if hasattr(self, 'txt_title'):
-                self.txt_title.blockSignals(True)
-                self.txt_title.setText(default_chart_title)
-                self.txt_title.blockSignals(False)
-            if hasattr(self, 'txt_xlabel'):
-                self.txt_xlabel.blockSignals(True)
-                self.txt_xlabel.setText(default_x_label)
-                self.txt_xlabel.blockSignals(False)
-            if hasattr(self, 'txt_ylabel'):
-                self.txt_ylabel.blockSignals(True)
-                self.txt_ylabel.setText(default_y_label)
-                self.txt_ylabel.blockSignals(False)
-            if hasattr(self, 'txt_legend_a'):
-                self.txt_legend_a.blockSignals(True)
-                self.txt_legend_a.clear()
-                self.txt_legend_a.blockSignals(False)
-            if hasattr(self, 'txt_legend_b'):
-                self.txt_legend_b.blockSignals(True)
-                self.txt_legend_b.clear()
-                self.txt_legend_b.blockSignals(False)
+            self.txt_title.blockSignals(True)
+            self.txt_title.setText(default_chart_title)
+            self.txt_title.blockSignals(False)
+            self.txt_xlabel.blockSignals(True)
+            self.txt_xlabel.setText(default_x_label)
+            self.txt_xlabel.blockSignals(False)
+            self.txt_ylabel.blockSignals(True)
+            self.txt_ylabel.setText(default_y_label)
+            self.txt_ylabel.blockSignals(False)
+            self.txt_legend_a.blockSignals(True)
+            self.txt_legend_a.clear()
+            self.txt_legend_a.blockSignals(False)
+            self.txt_legend_b.blockSignals(True)
+            self.txt_legend_b.clear()
+            self.txt_legend_b.blockSignals(False)
             self._need_reset_texts = False
 
         # プレースホルダーの更新
-        if hasattr(self, 'txt_title'):
-            self.txt_title.setPlaceholderText(default_chart_title)
-        if hasattr(self, 'txt_xlabel'):
-            self.txt_xlabel.setPlaceholderText(default_x_label)
-        if hasattr(self, 'txt_ylabel'):
-            if self.txt_ylabel.text() == self.txt_ylabel.placeholderText():
-                self.txt_ylabel.blockSignals(True)
-                self.txt_ylabel.setText(default_y_label)
-                self.txt_ylabel.blockSignals(False)
-            self.txt_ylabel.setPlaceholderText(default_y_label)
-        if hasattr(self, 'txt_legend_a') and hasattr(self, 'txt_legend_b'):
-            self.txt_legend_a.setPlaceholderText(data_a.legend_label_ma or "A系列のデフォルト凡例")
-            self.txt_legend_b.setPlaceholderText(data_b.legend_label_ma or "B系列のデフォルト凡例")
+        self.txt_title.setPlaceholderText(default_chart_title)
+        self.txt_xlabel.setPlaceholderText(default_x_label)
+        if self.txt_ylabel.text() == self.txt_ylabel.placeholderText():
+            self.txt_ylabel.blockSignals(True)
+            self.txt_ylabel.setText(default_y_label)
+            self.txt_ylabel.blockSignals(False)
+        self.txt_ylabel.setPlaceholderText(default_y_label)
+        self.txt_legend_a.setPlaceholderText(data_a.legend_label_ma or "A系列のデフォルト凡例")
+        self.txt_legend_b.setPlaceholderText(data_b.legend_label_ma or "B系列のデフォルト凡例")
 
         # 描画用テキストの取得（空欄を含む任意変更に対応）
-        chart_title = self.txt_title.text() if hasattr(self, 'txt_title') else default_chart_title
-        x_label = self.txt_xlabel.text() if hasattr(self, 'txt_xlabel') else default_x_label
-        y_label = self.txt_ylabel.text() if hasattr(self, 'txt_ylabel') else default_y_label
+        chart_title = self.txt_title.text()
+        x_label = self.txt_xlabel.text()
+        y_label = self.txt_ylabel.text()
 
         # カスタム凡例の取得と適用 (案A: 入力文字列そのままを完全上書き)
-        custom_a = self.txt_legend_a.text().strip() if hasattr(self, 'txt_legend_a') else ""
-        custom_b = self.txt_legend_b.text().strip() if hasattr(self, 'txt_legend_b') else ""
+        custom_a = self.txt_legend_a.text().strip()
+        custom_b = self.txt_legend_b.text().strip()
 
         legend_label_a = custom_a if custom_a else data_a.legend_label_ma
         legend_label_b = custom_b if custom_b else data_b.legend_label_ma
@@ -1149,10 +1129,10 @@ class CsvCompareWidget(QWidget):
         }
 
         # フォントサイズ設定の取得
-        font_label = self.spin_font_label.value() if hasattr(self, 'spin_font_label') else DEFAULT_CHART_FONT_LABEL
-        font_ticks = self.spin_font_ticks.value() if hasattr(self, 'spin_font_ticks') else DEFAULT_CHART_FONT_TICKS
-        font_title = self.spin_font_title.value() if hasattr(self, 'spin_font_title') else DEFAULT_CHART_FONT_TITLE
-        font_legend = self.spin_font_legend.value() if hasattr(self, 'spin_font_legend') else DEFAULT_CHART_FONT_LEGEND
+        font_label = self.spin_font_label.value()
+        font_ticks = self.spin_font_ticks.value()
+        font_title = self.spin_font_title.value()
+        font_legend = self.spin_font_legend.value()
 
         spec = ChartSpec(
             data_a=data_a,
@@ -1191,7 +1171,7 @@ class CsvCompareWidget(QWidget):
 
     def _export_chart_data_csv(self) -> None:
         """表示中のデータを CSV に保存"""
-        if not hasattr(self, '_current_spec') or self._current_spec is None:
+        if self._current_spec is None:
             QMessageBox.warning(self, "警告", "保存対象のグラフデータがありません。")
             return
 
@@ -1252,7 +1232,7 @@ class CsvCompareWidget(QWidget):
 
     def _open_figure_export_dialog(self) -> None:
         """論文用書き出しダイアログを開く"""
-        if not hasattr(self, '_current_spec') or self._current_spec is None:
+        if self._current_spec is None:
             QMessageBox.warning(self, "警告", "保存対象のグラフデータがありません。")
             return
 
