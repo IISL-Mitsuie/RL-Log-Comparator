@@ -9,14 +9,11 @@ from dataclasses import dataclass, field
 import threading
 from typing import Any, Callable, Optional
 
-from src.core.parsers.image_pair import select_latest_image, get_folder_images_dict
+from src.core.parsers.image_pair import get_folder_images_dict
 from src.core.parsers.safe_yaml import safe_load_yaml, find_config_file
 from src.core.parsers.csv_metric import find_log_csv
 
 logger = logging.getLogger(__name__)
-
-# 後方互換・エイリアス
-_select_latest_image = select_latest_image
 
 
 # 重要度の高いキー（カラム一覧で優先表示）
