@@ -42,7 +42,7 @@ CLEAR_HISTORY_TEXT = "🗑️ 履歴をクリア..."
 APP_USER_MODEL_ID = "IISL.RL_Log_Comparator.1_0"
 
 # アプリケーションバージョン・GitHub リポジトリ設定
-APP_VERSION = "1.3.2"
+APP_VERSION = "1.4.0"
 GITHUB_REPO_OWNER = "IISL-Mitsuie"
 GITHUB_REPO_NAME = "RL-Log-Comparator"
 UPDATE_CHECK_TIMEOUT_SEC = 5.0
