@@ -102,6 +102,11 @@ class MetricSeriesData:
     converged_episodes: list[int] = field(default_factory=list)          # 収束したエピソード番号リスト
     converged_y_values: list[float] = field(default_factory=list)        # 収束時の指標値（マーカー描画用）
 
+    @property
+    def y_smoothed(self) -> Optional[np.ndarray]:
+        """平滑化系列データ (y_ma と同義)"""
+        return self.y_ma
+
 
 @dataclass
 class MetricItemInfo:
@@ -543,13 +548,17 @@ def compute_metric_series(
     window: int = 10,
     label_prefix: str = "",
     task_filter_id: int = 0,
-    metric_idx: Optional[int] = None
+    metric_idx: Optional[int] = None,
+    smoothing: str = "ma",
+    ema_weight: float = 0.6
 ) -> MetricSeriesData:
     """
-    指定された DataFrame から指標値系列（生データおよび移動平均）を計算する。
+    指定された DataFrame から指標値系列（生データおよび平滑化系列）を計算する。
     metric_target / metric_idx: 従来の int (0..6) または 指標キー/列名文字列 ('__reward__', 'loss' 等)
     task_filter_id > 0 の場合は特定タスクに絞り込み、Task_Episode を 1 始まりの X 軸とする。
     task_filter_id == 0 の場合は全タスク統合とし、タスク境界線および収束ポイントを抽出する。
+    smoothing: 平滑化方式 ("ma" | "ema" | "none")
+    ema_weight: EMA平滑化係数 (0.0 <= ema_weight < 1.0)
     """
     if metric_target is None:
         metric_target = metric_idx if metric_idx is not None else 0
@@ -599,7 +608,10 @@ def compute_metric_series(
 
     # 4. 指標データ算出（X 軸に使った列は指標の候補から除外する）
     exclude = {x_info.column} if x_info.column else None
-    result = _compute_metric(target_df, x, target_key, window, label_prefix, is_task_filtered, exclude)
+    result = _compute_metric(
+        target_df, x, target_key, window, label_prefix, is_task_filtered, exclude,
+        smoothing=smoothing, ema_weight=ema_weight
+    )
     result.x_label = x_label
     result.x_kind = x_kind
     return result
@@ -610,6 +622,38 @@ def _to_float_array(values: pd.Series) -> np.ndarray:
     return pd.to_numeric(values, errors='coerce').astype(float).to_numpy(copy=True)
 
 
+def ema_smooth(y: np.ndarray, weight: float) -> np.ndarray:
+    """
+    TensorBoard 方式（バイアス補正付き）の指数移動平均 (EMA) を計算する。
+    - weight: 0.0 以上 1.0 未満の平滑化係数
+    - NaN は更新計算をスキップし、出力の該当位置も NaN を維持する。
+    - 先頭で値が 0 に引っ張られないようにバイアス補正を行う:
+        last = last * weight + (1 - weight) * val
+        debias = 1 - weight ** num_accum
+        smoothed = last / debias
+    """
+    if not (0.0 <= weight < 1.0):
+        raise ValueError(f"EMA weight は 0.0 以上 1.0 未満である必要があります: {weight}")
+
+    y_arr = np.asarray(y, dtype=float)
+    if len(y_arr) == 0:
+        return np.array([], dtype=float)
+
+    out = np.full(len(y_arr), np.nan, dtype=float)
+    last = 0.0
+    num_accum = 0
+
+    for i, val in enumerate(y_arr):
+        if np.isnan(val):
+            continue
+        last = last * weight + (1.0 - weight) * val
+        num_accum += 1
+        debias = 1.0 - (weight ** num_accum)
+        out[i] = last / debias if debias != 0.0 else last
+
+    return out
+
+
 def _moving_average(y: np.ndarray, window: int) -> np.ndarray:
     """NaN を飛ばした移動平均。生データが NaN の位置は移動平均も NaN にする（記録がない位置に値を描かない）"""
     ma_vals = pd.Series(y, dtype=float).rolling(window=window, min_periods=1).mean().to_numpy(copy=True)
@@ -617,28 +661,56 @@ def _moving_average(y: np.ndarray, window: int) -> np.ndarray:
     return ma_vals
 
 
+def _apply_smoothing(
+    y: np.ndarray,
+    smoothing: str = "ma",
+    window: int = 10,
+    ema_weight: float = 0.6
+) -> np.ndarray:
+    """平滑化方式 (ma / ema / none) に応じた平滑化系列を算出"""
+    if smoothing == "ema":
+        return ema_smooth(y, ema_weight)
+    elif smoothing == "none":
+        res = np.array(y, dtype=float, copy=True)
+        res[np.isnan(y)] = np.nan
+        return res
+    else:  # "ma"
+        return _moving_average(y, window)
+
+
 def _normalized_result(df: pd.DataFrame) -> pd.Series:
     """Result 列を前後の空白を除いた小文字の文字列にする"""
     return df['Result'].astype(str).str.strip().str.lower()
 
 
-def _rate_from_result_column(df: pd.DataFrame, value: str, window: int) -> Optional[np.ndarray]:
-    """Result 列が value と一致する割合 (%) の移動平均を返す。空欄の行は数えない。すべて空欄なら None"""
+def _rate_from_result_column(
+    df: pd.DataFrame,
+    value: str,
+    smoothing: str = "ma",
+    window: int = 10,
+    ema_weight: float = 0.6
+) -> Optional[np.ndarray]:
+    """Result 列が value と一致する割合 (%) の平滑化系列を返す。空欄の行は数えない。すべて空欄なら None"""
     missing = df['Result'].isna().to_numpy()
     if missing.all():
         return None
     vals = (_normalized_result(df) == value).astype(float).to_numpy(copy=True) * 100.0
     vals[missing] = np.nan
-    return _moving_average(vals, window)
+    return _apply_smoothing(vals, smoothing=smoothing, window=window, ema_weight=ema_weight)
 
 
-def _rate_from_numeric_column(vals: np.ndarray, window: int) -> Optional[np.ndarray]:
-    """0/1（または %）の数値列から率 (%) の移動平均を返す。すべて NaN なら None"""
+def _rate_from_numeric_column(
+    vals: np.ndarray,
+    smoothing: str = "ma",
+    window: int = 10,
+    ema_weight: float = 0.6
+) -> Optional[np.ndarray]:
+    """0/1（または %）の数値列から率 (%) の平滑化系列を返す。すべて NaN なら None"""
     if np.all(np.isnan(vals)):
         return None
     if np.nanmax(vals) <= 1.0:
         vals = vals * 100.0
-    return _moving_average(vals, window)
+    return _apply_smoothing(vals, smoothing=smoothing, window=window, ema_weight=ema_weight)
 
 
 def _compute_metric(
@@ -648,16 +720,27 @@ def _compute_metric(
     window: int,
     label_prefix: str,
     is_task_filtered: bool,
-    exclude: Optional[set[str]]
+    exclude: Optional[set[str]],
+    smoothing: str = "ma",
+    ema_weight: float = 0.6
 ) -> MetricSeriesData:
-    """指標キーに応じて生データ・移動平均を算出する"""
+    """指標キーに応じて生データ・平滑化系列を算出する"""
+    def _standard_legend() -> str:
+        if smoothing == "ema":
+            suffix = f"EMA: {ema_weight}"
+        elif smoothing == "none":
+            suffix = "生データ"
+        else:
+            suffix = f"移動平均: {window}ep"
+        return f"{label_prefix} ({suffix})"
+
     # (A) 報酬 (Reward)
     if target_key in ("__reward__", "TotalReward", "__metric_0__"):
         col = find_column_by_aliases(target_df, REWARD_ALIASES, exclude)
         if col and col in target_df.columns:
             y = _to_float_array(target_df[col])
-            ma_vals = _moving_average(y, window)
-            return _build_metric_result(target_df, x, y, ma_vals, f"{label_prefix} (移動平均: {window}ep)", "Total Reward", is_task_filtered)
+            smoothed = _apply_smoothing(y, smoothing, window, ema_weight)
+            return _build_metric_result(target_df, x, y, smoothed, _standard_legend(), "Total Reward", is_task_filtered)
         return MetricSeriesData(has_data=False, y_label="Total Reward")
 
     # (B) ステップ数 (Steps)
@@ -665,38 +748,50 @@ def _compute_metric(
         col = find_column_by_aliases(target_df, STEPS_ALIASES, exclude)
         if col and col in target_df.columns:
             y = _to_float_array(target_df[col])
-            ma_vals = _moving_average(y, window)
-            return _build_metric_result(target_df, x, y, ma_vals, f"{label_prefix} (移動平均: {window}ep)", "Steps per Episode", is_task_filtered)
+            smoothed = _apply_smoothing(y, smoothing, window, ema_weight)
+            return _build_metric_result(target_df, x, y, smoothed, _standard_legend(), "Steps per Episode", is_task_filtered)
         return MetricSeriesData(has_data=False, y_label="Steps per Episode")
 
     # (C) 成功率 (Success Rate)
     elif target_key in ("__success_rate__", "GoalSuccessRate", "__metric_3__"):
-        y_label = f"Goal Success Rate (% [{window} ep MA])"
+        if smoothing == "ema":
+            y_label = f"Goal Success Rate (% [EMA: {ema_weight}])"
+        elif smoothing == "none":
+            y_label = "Goal Success Rate (%)"
+        else:
+            y_label = f"Goal Success Rate (% [{window} ep MA])"
+
         if 'Result' in target_df.columns:
-            ma_vals = _rate_from_result_column(target_df, 'goal', window)
-            if ma_vals is not None:
-                return _build_metric_result(target_df, x, None, ma_vals, f"{label_prefix} (成功率)", y_label, is_task_filtered)
+            smoothed = _rate_from_result_column(target_df, 'goal', smoothing, window, ema_weight)
+            if smoothed is not None:
+                return _build_metric_result(target_df, x, None, smoothed, f"{label_prefix} (成功率)", y_label, is_task_filtered)
             return MetricSeriesData(has_data=False, y_label=y_label)
         succ_col = find_column_by_aliases(target_df, SUCCESS_ALIASES, exclude)
         if succ_col and succ_col in target_df.columns:
-            ma_vals = _rate_from_numeric_column(_to_float_array(target_df[succ_col]), window)
-            if ma_vals is not None:
-                return _build_metric_result(target_df, x, None, ma_vals, f"{label_prefix} (成功率)", y_label, is_task_filtered)
+            smoothed = _rate_from_numeric_column(_to_float_array(target_df[succ_col]), smoothing, window, ema_weight)
+            if smoothed is not None:
+                return _build_metric_result(target_df, x, None, smoothed, f"{label_prefix} (成功率)", y_label, is_task_filtered)
         return MetricSeriesData(has_data=False, y_label=y_label)
 
     # (D) 衝突率 (Collision Rate)
     elif target_key in ("__collision_rate__", "CollisionRate", "__metric_6__"):
-        y_label = f"Collision Rate (% [{window} ep MA])"
+        if smoothing == "ema":
+            y_label = f"Collision Rate (% [EMA: {ema_weight}])"
+        elif smoothing == "none":
+            y_label = "Collision Rate (%)"
+        else:
+            y_label = f"Collision Rate (% [{window} ep MA])"
+
         if 'Result' in target_df.columns:
-            ma_vals = _rate_from_result_column(target_df, 'collision', window)
-            if ma_vals is not None:
-                return _build_metric_result(target_df, x, None, ma_vals, f"{label_prefix} (衝突率)", y_label, is_task_filtered)
+            smoothed = _rate_from_result_column(target_df, 'collision', smoothing, window, ema_weight)
+            if smoothed is not None:
+                return _build_metric_result(target_df, x, None, smoothed, f"{label_prefix} (衝突率)", y_label, is_task_filtered)
             return MetricSeriesData(has_data=False, y_label=y_label)
         coll_col = find_column_by_aliases(target_df, COLLISION_ALIASES, exclude)
         if coll_col and coll_col in target_df.columns:
-            ma_vals = _rate_from_numeric_column(_to_float_array(target_df[coll_col]), window)
-            if ma_vals is not None:
-                return _build_metric_result(target_df, x, None, ma_vals, f"{label_prefix} (衝突率)", y_label, is_task_filtered)
+            smoothed = _rate_from_numeric_column(_to_float_array(target_df[coll_col]), smoothing, window, ema_weight)
+            if smoothed is not None:
+                return _build_metric_result(target_df, x, None, smoothed, f"{label_prefix} (衝突率)", y_label, is_task_filtered)
         return MetricSeriesData(has_data=False, y_label=y_label)
 
     # (E) ゴール残距離 (GoalDistance)
@@ -707,8 +802,8 @@ def _compute_metric(
             dx = _to_float_array(target_df['Goal_X']) - _to_float_array(target_df['Final_X'])
             dy = _to_float_array(target_df['Goal_Y']) - _to_float_array(target_df['Final_Y'])
             dist = np.sqrt(dx**2 + dy**2)
-            ma_vals = _moving_average(dist, window)
-            return _build_metric_result(target_df, x, dist, ma_vals, f"{label_prefix} (ゴール残距離)", y_label, is_task_filtered)
+            smoothed = _apply_smoothing(dist, smoothing, window, ema_weight)
+            return _build_metric_result(target_df, x, dist, smoothed, f"{label_prefix} (ゴール残距離)", y_label, is_task_filtered)
         return MetricSeriesData(has_data=False, y_label=y_label)
 
     # (F) 安全違反回数 (UnsafeActions)
@@ -716,8 +811,8 @@ def _compute_metric(
         col = find_column_by_aliases(target_df, ["UnsafeActions", "unsafe_actions", "violations"], exclude)
         if col and col in target_df.columns:
             y = _to_float_array(target_df[col])
-            ma_vals = _moving_average(y, window)
-            return _build_metric_result(target_df, x, y, ma_vals, f"{label_prefix} (移動平均: {window}ep)", "Unsafe Actions Count", is_task_filtered)
+            smoothed = _apply_smoothing(y, smoothing, window, ema_weight)
+            return _build_metric_result(target_df, x, y, smoothed, _standard_legend(), "Unsafe Actions Count", is_task_filtered)
         return MetricSeriesData(has_data=False, y_label="Unsafe Actions Count")
 
     # (G) 知識獲得数 (Acquired_Policies)
@@ -731,8 +826,14 @@ def _compute_metric(
     # (H) 任意の一般数値列 (Generic)
     elif target_key in target_df.columns:
         y = _to_float_array(target_df[target_key])
-        ma_vals = _moving_average(y, window)
-        return _build_metric_result(target_df, x, y, ma_vals, f"{label_prefix} ({target_key} MA: {window}ep)", target_key, is_task_filtered)
+        smoothed = _apply_smoothing(y, smoothing, window, ema_weight)
+        if smoothing == "ema":
+            leg = f"{label_prefix} ({target_key} EMA: {ema_weight})"
+        elif smoothing == "none":
+            leg = f"{label_prefix} ({target_key})"
+        else:
+            leg = f"{label_prefix} ({target_key} MA: {window}ep)"
+        return _build_metric_result(target_df, x, y, smoothed, leg, target_key, is_task_filtered)
 
     # 該当列なし
     return MetricSeriesData(has_data=False, y_label=target_key)
